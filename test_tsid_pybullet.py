@@ -1,9 +1,11 @@
 # coding: utf8
 
+import pybullet as p 
 import pinocchio as pin
 import numpy as np 
 import numpy.matlib as matlib
 import tsid
+import pybullet_data
 import time
 
 from IPython import embed 
@@ -11,14 +13,14 @@ from IPython import embed
 ## Initialization
 
 # Definition of the tasks gains and weights
-w_com = 10.0				# weight of the CoM task
+w_com = 10.0			# weight of the CoM task
 w_posture = 1.0  		# weight of the posture task
 w_forceRef = 1e-3		# weight of the forces regularization for the contacts
 
-kp_com = 10.0 			# proportionnal gain of the CoM task
+kp_com = 100.0 			# proportionnal gain of the CoM task
 kp_posture = 0.0  		# proportionnal gain of the posture task
-kd_posture = 1.0		# derivative gain of the posture task
-kp_contact = 10.0		# proportionnal gain of the contacts
+kd_posture = 0.0		# derivative gain of the posture task
+kp_contact = 0.0		# proportionnal gain of the contacts
 
 # For the contacts
 mu = 0.3  		# friction coefficient
@@ -28,11 +30,10 @@ foot_frames = ['HL_FOOT', 'HR_FOOT', 'FL_FOOT', 'FR_FOOT']  # tab with all the f
 contactNormal = np.matrix([0., 0., 1.]).T  # direction of the normal to the contact surface
 
 # Simulation parameters
-N_SIMULATION = 30000	# number of time steps simulated
+N_SIMULATION = 10000	# number of time steps simulated
 dt = 0.001				# controller time step
 
 t = 0.0  				# time
-
 
 ## Set the path where the urdf and srdf file of the robot is registered
 
@@ -107,7 +108,7 @@ for i, name in enumerate(foot_frames):
 	H_ref = robot.framePosition(data, model.getFrameId(name))
 	contacts[i].setReference(H_ref)
 	contacts[i].useLocalFrame(False)
-	invdyn.addRigidContact(contacts[i], w_forceRef)
+	invdyn.addRigidContact(contacts[i], w_forceRef, 1.0, 1)
 	
 
 ## TSID Trajectory
@@ -119,7 +120,8 @@ com_ref = data.com[0]  # Initial value of the CoM
 trajCom = tsid.TrajectoryEuclidianConstant("traj_com", com_ref)
 
 sampleCom = trajCom.computeNext()
-comTask.setReference(sampleCom) 
+comTask.setReference(sampleCom)
+	
 
 # POSTURE Task
 q_ref = qdes[7:] # Initial value of the joints of the robot (in half_sitting position without the freeFlyer (6 first values))
@@ -128,7 +130,7 @@ trajPosture = tsid.TrajectoryEuclidianConstant("traj_joint", q_ref)
 samplePosture = trajPosture.computeNext()
 postureTask.setReference(samplePosture)
 
-## Initialisation of the solver
+## Initialization of the solver
 
 # Use EiquadprogFast solver
 solver = tsid.SolverHQuadProgFast("qp solver")
@@ -146,19 +148,91 @@ com_vel_ref = matlib.empty((3, N_SIMULATION))
 com_acc_ref = matlib.empty((3, N_SIMULATION))
 com_acc_des = matlib.empty((3, N_SIMULATION))
 
-## Launch the simulation
-simulation_time = []
-for i in range (N_SIMULATION):
+########################################################################
+# Initialization of PyBullet variables 
+
+v_prev = np.matrix(np.zeros(robot.nv)).T  # velocity during the previous time step, of size (robot.nv,1)
+
+# Start the client for PyBullet
+physicsClient = p.connect(p.GUI)#or p.DIRECT for non-graphical version
+
+# Set gravity (disabled by default)
+p.setGravity(0,0,-9.81)
+
+# Load horizontal plane
+p.setAdditionalSearchPath(pybullet_data.getDataPath())
+planeId = p.loadURDF("plane.urdf")
+
+# Load Quadruped robot
+robotStartPos = [0,0,0.35] 
+robotStartOrientation = p.getQuaternionFromEuler([0,0,0])
+p.setAdditionalSearchPath("/opt/openrobots/share/example-robot-data/robots/solo_description/robots")
+robotId = p.loadURDF("solo12.urdf",robotStartPos, robotStartOrientation)
+
+# Disable default motor control for revolute joints
+revoluteJointIndices = [0,1,2, 4,5,6, 8,9,10, 12,13,14]
+p.setJointMotorControlArray(robotId, jointIndices = revoluteJointIndices, controlMode = p.VELOCITY_CONTROL,targetVelocities = [0.0 for m in revoluteJointIndices], forces = [0.0 for m in revoluteJointIndices])
+								 
+# Initialize the joint configuration
+initial_joint_positions = [0., 0.8, -1.6, 0., 0.8, -1.6, 0., -0.8, 1.6, 0., -0.8, 1.6]
+for i in range (len(initial_joint_positions)):
+	p.resetJointState(robotId, revoluteJointIndices[i], initial_joint_positions[i])
+							
+# Enable torque control for revolute joints
+jointTorques = [0.0 for m in revoluteJointIndices]
+
+p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_CONTROL, forces=jointTorques)
+
+realTimeSimulation = False
+
+
+## Sort contacts points to get only one contact per foot ##
+def getContactPoint(contactPoints):
+	for i in range(0,len(contactPoints)):
+		# There may be several contact points for each foot but only one of them as a non zero normal force
+		if (contactPoints[i][9] != 0): 
+			return contactPoints[i]
+	return 0 # If it returns 0 then it means there is no contact point with a non zero normal force (should not happen) 
+
+
+## Function called from the main loop which computes the inverse dynamic problem and returns the torques
+def callback_torques():
+	global sol, t, v_prev, q, qdes, vdes
+
+	jointStates = p.getJointStates(robotId, revoluteJointIndices) # State of all joints
+	baseState   = p.getBasePositionAndOrientation(robotId)
+	baseVel = p.getBaseVelocity(robotId)
+
+	# Info about contact points with the ground
+	contactPoints_FL = p.getContactPoints(robotId, planeId, linkIndexA=2)  # Front left  foot 
+	contactPoints_FR = p.getContactPoints(robotId, planeId, linkIndexA=5)  # Front right foot 
+	contactPoints_HL = p.getContactPoints(robotId, planeId, linkIndexA=8)  # Hind  left  foot 
+	contactPoints_HR = p.getContactPoints(robotId, planeId, linkIndexA=11) # Hind  right foot 
+
+	# Sort contacts points to get only one contact per foot
+	contactPoints = []
+	contactPoints.append(getContactPoint(contactPoints_FL))
+	contactPoints.append(getContactPoint(contactPoints_FR))
+	contactPoints.append(getContactPoint(contactPoints_HL))
+	contactPoints.append(getContactPoint(contactPoints_HR))
+
+	# Joint vector for Pinocchio
+	q = np.vstack((np.array([baseState[0]]).transpose(), np.array([baseState[1]]).transpose(), np.array([[jointStates[i_joint][0] for i_joint in range(len(jointStates))]]).transpose()))
+	v = np.vstack((np.array([baseVel[0]]).transpose(), np.array([baseVel[1]]).transpose(), np.array([[jointStates[i_joint][1] for i_joint in range(len(jointStates))]]).transpose()))
+	v_dot = (v-v_prev)/dt
+	v_prev = v.copy()
 	
-	#time_start = time.time()
+	####################################################################
+	
+	sampleCom = trajCom.computeNext()
+	comTask.setReference(sampleCom)
+	
+	samplePosture = trajPosture.computeNext()
+	postureTask.setReference(samplePosture)
 	
 	HQPData = invdyn.computeProblemData(t, qdes, vdes)
 	
 	sol = solver.solve(HQPData)
-	
-	if(sol.status != 0):
-		print ("QP problem could not be solved ! Error code:", sol.status)
-		break
 	
 	tau = invdyn.getActuatorForces(sol)
 	dv = invdyn.getAccelerations(sol)
@@ -167,17 +241,51 @@ for i in range (N_SIMULATION):
 	qdes = pin.integrate(model, qdes, dt*vdes)
 	t += dt
 	
-	robot_display.display(qdes)
+	robot_display.display(q)
+		
+	####################################################################
 	
-	#simulation_time.append(time.time() - time_start)
+	# PD Torque controller
+	Kp_PD = 8.0
+	Kd_PD = 0.1
 	
-	com_pos[:,i] = robot.com(invdyn.data())
-	com_vel[:,i] = robot.com_vel(invdyn.data())
-	com_acc[:,i] = comTask.getAcceleration(dv)
+	torques = Kp_PD * (qdes[7:] - q[7:]) + Kd_PD * (vdes[6:] - v[6:])
+	
+	# Saturation to limit the maximal torque
+	t_max = 5
+	torques = np.maximum(np.minimum(torques, t_max * np.ones((12,1))), -t_max * np.ones((12,1)))
+	
+	return torques, robot.com(invdyn.data()), robot.com_vel(invdyn.data()), comTask.getAcceleration(dv)
+
+## Launch the simulation
+
+for i in range (N_SIMULATION):
+	
+	if realTimeSimulation:
+		t0 = time.clock()
+	
+	# Callback Pinocchio to get joint torques
+	jointTorques, com_pos[:,i], com_vel[:,i], com_acc[:,i] = callback_torques()
+	
+	if(sol.status != 0):
+		print ("QP problem could not be solved ! Error code:", sol.status)
+		break
+	
+	# Set control torque for all joints
+	p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_CONTROL, forces=jointTorques)
+
+	# Compute one step of simulation
+	p.stepSimulation()
+	
 	com_pos_ref[:,i] = sampleCom.pos()
 	com_vel_ref[:,i] = sampleCom.vel()
 	com_acc_ref[:,i] = sampleCom.acc()
-	com_acc_des[:,i] = comTask.getDesiredAcceleration	
+	com_acc_des[:,i] = comTask.getDesiredAcceleration
+	
+	if realTimeSimulation:
+		t_sleep = dt - (time.clock()-t0)
+		if t_sleep > 0:
+			time.sleep(t_sleep)	
 	
 embed()
 
