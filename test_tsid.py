@@ -8,6 +8,8 @@ import time
 
 from IPython import embed 
 
+pin.switchToNumpyMatrix()
+
 ## Initialization
 
 # Definition of the tasks gains and weights

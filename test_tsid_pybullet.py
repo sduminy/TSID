@@ -10,6 +10,8 @@ import time
 
 from IPython import embed 
 
+pin.switchToNumpyMatrix()
+
 ## Initialization
 
 # Definition of the tasks gains and weights
@@ -18,8 +20,8 @@ w_posture = 1.0  		# weight of the posture task
 w_forceRef = 1e-3		# weight of the forces regularization for the contacts
 
 kp_com = 100.0 			# proportionnal gain of the CoM task
-kp_posture = 0.0  		# proportionnal gain of the posture task
-kd_posture = 0.0		# derivative gain of the posture task
+kp_posture = 1.0  		# proportionnal gain of the posture task
+kd_posture = 10.0		# derivative gain of the posture task
 kp_contact = 0.0		# proportionnal gain of the contacts
 
 # For the contacts
@@ -30,7 +32,7 @@ foot_frames = ['HL_FOOT', 'HR_FOOT', 'FL_FOOT', 'FR_FOOT']  # tab with all the f
 contactNormal = np.matrix([0., 0., 1.]).T  # direction of the normal to the contact surface
 
 # Simulation parameters
-N_SIMULATION = 10000	# number of time steps simulated
+N_SIMULATION = 30000	# number of time steps simulated
 dt = 0.001				# controller time step
 
 t = 0.0  				# time
@@ -164,7 +166,7 @@ p.setAdditionalSearchPath(pybullet_data.getDataPath())
 planeId = p.loadURDF("plane.urdf")
 
 # Load Quadruped robot
-robotStartPos = [0,0,0.35] 
+robotStartPos = [0,0,0.25] 
 robotStartOrientation = p.getQuaternionFromEuler([0,0,0])
 p.setAdditionalSearchPath("/opt/openrobots/share/example-robot-data/robots/solo_description/robots")
 robotId = p.loadURDF("solo12.urdf",robotStartPos, robotStartOrientation)
@@ -183,7 +185,7 @@ jointTorques = [0.0 for m in revoluteJointIndices]
 
 p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_CONTROL, forces=jointTorques)
 
-realTimeSimulation = False
+realTimeSimulation = True
 
 
 ## Sort contacts points to get only one contact per foot ##
@@ -224,13 +226,7 @@ def callback_torques():
 	
 	####################################################################
 	
-	sampleCom = trajCom.computeNext()
-	comTask.setReference(sampleCom)
-	
-	samplePosture = trajPosture.computeNext()
-	postureTask.setReference(samplePosture)
-	
-	HQPData = invdyn.computeProblemData(t, qdes, vdes)
+	HQPData = invdyn.computeProblemData(t, q, v)
 	
 	sol = solver.solve(HQPData)
 	
@@ -249,7 +245,7 @@ def callback_torques():
 	Kp_PD = 8.0
 	Kd_PD = 0.1
 	
-	torques = Kp_PD * (qdes[7:] - q[7:]) + Kd_PD * (vdes[6:] - v[6:])
+	torques = tau #+ Kp_PD * (qdes[7:] - q[7:]) + Kd_PD * (vdes[6:] - v[6:])
 	
 	# Saturation to limit the maximal torque
 	t_max = 5
@@ -273,7 +269,9 @@ for i in range (N_SIMULATION):
 	
 	# Set control torque for all joints
 	p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_CONTROL, forces=jointTorques)
-
+	
+	#p.applyExternalForce('pow', -1, [0., 0., 1.], [0., 0., 0.], 0) #name, index of base, force vector, application vector
+	
 	# Compute one step of simulation
 	p.stepSimulation()
 	
@@ -286,7 +284,7 @@ for i in range (N_SIMULATION):
 		t_sleep = dt - (time.clock()-t0)
 		if t_sleep > 0:
 			time.sleep(t_sleep)	
-	
+"""	
 embed()
 
 ## Plot the results
@@ -347,3 +345,4 @@ plt.plot(time, com_acc_des[2,:].A1, 'g--', label='CoM Des z')
 plt.legend()
 
 plt.show()
+"""
