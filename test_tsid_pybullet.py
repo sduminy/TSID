@@ -18,11 +18,13 @@ pin.switchToNumpyMatrix()
 w_com = 10.0			# weight of the CoM task
 w_posture = 1.0  		# weight of the posture task
 w_forceRef = 1e-3		# weight of the forces regularization for the contacts
+w_lock = 10.0			# weight of the lock task
 
 kp_com = 100.0 			# proportionnal gain of the CoM task
 kp_posture = 1.0  		# proportionnal gain of the posture task
 kd_posture = 10.0		# derivative gain of the posture task
 kp_contact = 0.0		# proportionnal gain of the contacts
+kp_lock = 10000.0		# proportionnal gain of the lock task
 
 # For the contacts
 mu = 0.3  		# friction coefficient
@@ -88,15 +90,26 @@ data = invdyn.data()
 comTask = tsid.TaskComEquality("task-com", robot)
 comTask.setKp(kp_com * matlib.ones(3).T)  # Proportional gain of the CoM task
 comTask.setKd(2.0 * np.sqrt(kp_com) * matlib.ones(3).T) # Derivative gain 
-# Add the task to the HQP with weight = 1.0, priority level = 0 (as real constraint) and a transition duration = 0.0
+# Add the task to the HQP with weight = w_com, priority level = 1 (in the cost function) and a transition duration = 0.0
 invdyn.addMotionTask(comTask, w_com, 1, 0.0)
 
 # POSTURE Task
 postureTask = tsid.TaskJointPosture("task-posture", robot)
 postureTask.setKp(kp_posture * matlib.ones(robot.nv).T) # Proportional gain 
 postureTask.setKd(kd_posture * matlib.ones(robot.nv).T) # Derivative gain 
-# Add the task to the HQP with weight = 1e-3, priority level = 1 (in the cost function) and a transition duration = 0.0
+# Add the task to the HQP with weight = w_posture, priority level = 1 (in the cost function) and a transition duration = 0.0
 invdyn.addMotionTask(postureTask, w_posture, 1, 0.0)
+
+# LOCK Task
+lockTask = tsid.TaskJointPosture("task-lock-shoulder", robot)
+lockTask.setKp(kp_lock * matlib.ones(robot.nv).T) # Proportional gain 
+lockTask.setKd(2.0 * np.sqrt(kp_lock) * matlib.ones(robot.nv).T) # Derivative gain
+mask = np.matrix(np.zeros(robot.nv-6))
+for i in [0, 3, 6, 9]:
+	mask[0,i] = 1
+lockTask.mask(mask.T)
+# Add the task to the HQP with weight = w_lock, priority level = 0 (as real constraint) and a transition duration = 0.0
+invdyn.addMotionTask(lockTask, w_lock, 0, 0.0)
 
 
 ## CONTACTS
@@ -124,13 +137,19 @@ trajCom = tsid.TrajectoryEuclidianConstant("traj_com", com_ref)
 sampleCom = trajCom.computeNext()
 comTask.setReference(sampleCom)
 	
-
 # POSTURE Task
 q_ref = qdes[7:] # Initial value of the joints of the robot (in half_sitting position without the freeFlyer (6 first values))
 trajPosture = tsid.TrajectoryEuclidianConstant("traj_joint", q_ref)
 
 samplePosture = trajPosture.computeNext()
 postureTask.setReference(samplePosture)
+
+# LOCK Task
+trajLock = tsid.TrajectoryEuclidianConstant("traj_lock_shoulder", q_ref)
+
+sampleLock = trajLock.computeNext()
+lockTask.setReference(sampleLock)
+
 
 ## Initialization of the solver
 
@@ -141,14 +160,11 @@ solver.resize(invdyn.nVar, invdyn.nEq, invdyn.nIn)
 
 # Initialisation of the plot variables which will be updated during the simulation loop 
 # These variables describe the behavior of the CoM of the robot (reference and real position, velocity and acceleration)
-com_pos = matlib.empty((3, N_SIMULATION))
-com_vel = matlib.empty((3, N_SIMULATION))
-com_acc = matlib.empty((3, N_SIMULATION))
+acc_shoulder1 = matlib.empty((1, N_SIMULATION))
+acc_shoulder2 = matlib.empty((1, N_SIMULATION))
+acc_shoulder3 = matlib.empty((1, N_SIMULATION))
+acc_shoulder4 = matlib.empty((1, N_SIMULATION))
 
-com_pos_ref = matlib.empty((3, N_SIMULATION))
-com_vel_ref = matlib.empty((3, N_SIMULATION))
-com_acc_ref = matlib.empty((3, N_SIMULATION))
-com_acc_des = matlib.empty((3, N_SIMULATION))
 
 ########################################################################
 # Initialization of PyBullet variables 
@@ -251,7 +267,7 @@ def callback_torques():
 	t_max = 5
 	torques = np.maximum(np.minimum(torques, t_max * np.ones((12,1))), -t_max * np.ones((12,1)))
 	
-	return torques, robot.com(invdyn.data()), robot.com_vel(invdyn.data()), comTask.getAcceleration(dv)
+	return torques, dv[7], dv[10], dv[13], dv[16]
 
 ## Launch the simulation
 
@@ -261,7 +277,7 @@ for i in range (N_SIMULATION):
 		t0 = time.clock()
 	
 	# Callback Pinocchio to get joint torques
-	jointTorques, com_pos[:,i], com_vel[:,i], com_acc[:,i] = callback_torques()
+	jointTorques, acc_shoulder1[:,i], acc_shoulder2[:,i], acc_shoulder3[:,i], acc_shoulder4[:,i] = callback_torques()
 	
 	if(sol.status != 0):
 		print ("QP problem could not be solved ! Error code:", sol.status)
@@ -270,22 +286,14 @@ for i in range (N_SIMULATION):
 	# Set control torque for all joints
 	p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_CONTROL, forces=jointTorques)
 	
-	#p.applyExternalForce('pow', -1, [0., 0., 1.], [0., 0., 0.], 0) #name, index of base, force vector, application vector
-	
 	# Compute one step of simulation
 	p.stepSimulation()
-	
-	com_pos_ref[:,i] = sampleCom.pos()
-	com_vel_ref[:,i] = sampleCom.vel()
-	com_acc_ref[:,i] = sampleCom.acc()
-	com_acc_des[:,i] = comTask.getDesiredAcceleration
 	
 	if realTimeSimulation:
 		t_sleep = dt - (time.clock()-t0)
 		if t_sleep > 0:
 			time.sleep(t_sleep)	
-"""	
-embed()
+
 
 ## Plot the results
 
@@ -293,56 +301,20 @@ import matplotlib.pylab as plt
 
 time = np.arange(0.0, N_SIMULATION*dt, dt)
 
-# Position tracking of the CoM along the x,y,z axis
-plt.figure(1)
-plt.subplot(311)
-plt.plot(time, com_pos[0,:].A1, label='CoM x')
-plt.plot(time, com_pos_ref[0,:].A1, 'r:', label='CoM Ref x')
-plt.title('Position error of the Center of Mass task')
+# Acceleration tracking of the 4 shoulders
+plt.figure()
+plt.subplot(411)
+plt.plot(time, acc_shoulder1[0,:].A1, label='acceleration shoulder 1')
+plt.title('Acceleration of the 4 shoulders during the simulation')
 plt.legend()
-plt.subplot(312)
-plt.plot(time, com_pos[1,:].A1, label='CoM y')
-plt.plot(time, com_pos_ref[1,:].A1, 'r:', label='CoM Ref y')
+plt.subplot(412)
+plt.plot(time, acc_shoulder2[0,:].A1, label='acceleration shoulder 2')
 plt.legend()
-plt.subplot(313)
-plt.plot(time, com_pos[2,:].A1, label='CoM z')
-plt.plot(time, com_pos_ref[2,:].A1, 'r:', label='CoM Ref z')
+plt.subplot(413)
+plt.plot(time, acc_shoulder3[0,:].A1, label='acceleration shoulder 3')
 plt.legend()
-
-# Velocity tracking of the CoM along the x,y,z axis
-plt.figure(2)
-plt.subplot(311)
-plt.plot(time, com_vel[0,:].A1, label='CoM x')
-plt.plot(time, com_vel_ref[0,:].A1, 'r:', label='CoM Ref x')
-plt.title('Velocity error of the Center of Mass task')
-plt.legend()
-plt.subplot(312)
-plt.plot(time, com_vel[1,:].A1, label='CoM y')
-plt.plot(time, com_vel_ref[1,:].A1, 'r:', label='CoM Ref y')
-plt.legend()
-plt.subplot(313)
-plt.plot(time, com_vel[2,:].A1, label='CoM z')
-plt.plot(time, com_vel_ref[2,:].A1, 'r:', label='CoM Ref z')
-plt.legend()
-
-# Acceleration tracking of the CoM along the x,y,z axis
-plt.figure(3)
-plt.subplot(311)
-plt.plot(time, com_acc[0,:].A1, label='CoM x')
-plt.plot(time, com_acc_ref[0,:].A1, 'r:', label='CoM Ref x')
-plt.plot(time, com_acc_des[0,:].A1, 'g--', label='CoM Des x')
-plt.title('Acceleration error of the Center of Mass task')
-plt.legend()
-plt.subplot(312)
-plt.plot(time, com_acc[1,:].A1, label='CoM y')
-plt.plot(time, com_acc_ref[1,:].A1, 'r:', label='CoM Ref y')
-plt.plot(time, com_acc_des[1,:].A1, 'g--', label='CoM Des y')
-plt.legend()
-plt.subplot(313)
-plt.plot(time, com_acc[2,:].A1, label='CoM z')
-plt.plot(time, com_acc_ref[2,:].A1, 'r:', label='CoM Ref z')
-plt.plot(time, com_acc_des[2,:].A1, 'g--', label='CoM Des z')
+plt.subplot(414)
+plt.plot(time, acc_shoulder4[0,:].A1, label='acceleration shoulder 4')
 plt.legend()
 
 plt.show()
-"""
