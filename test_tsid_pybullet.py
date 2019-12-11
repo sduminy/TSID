@@ -59,13 +59,33 @@ robot_display = pin.RobotWrapper.BuildFromURDF(urdf, [modelPath, ], pin.JointMod
 robot_display.initViewer(loadModel=True)
 
 
-## Take the model of the robot and load its reference configuration
+## Take the model of the robot 
 
 model = robot.model()
-pin.loadReferenceConfigurations(model, srdf, False)
+
+## Modify the Position Bounds of the robot
+model_updated = model.copy()
+
+lowerBoundsMatrix = model.lowerPositionLimit.copy()
+lowerBoundsMatrix[9] = -2.4
+lowerBoundsMatrix[12] = -2.4
+lowerBoundsMatrix[15] = 0.8
+lowerBoundsMatrix[18] = 0.8
+model_updated.lowerPositionLimit = lowerBoundsMatrix
+
+upperBoundsMatrix = model.upperPositionLimit.copy()
+upperBoundsMatrix[9] = -0.8
+upperBoundsMatrix[12] = -0.8
+upperBoundsMatrix[15] = 2.4
+upperBoundsMatrix[18] = 2.4
+model_updated.upperPositionLimit = upperBoundsMatrix
+
+## Load its reference configuration
+ 
+pin.loadReferenceConfigurations(model_updated, srdf, False)
 
 # Set the current configuration q to the robot configuration straight_standing
-qdes = model.referenceConfigurations['straight_standing']
+qdes = model_updated.referenceConfigurations['straight_standing']
 vdes = np.matrix(np.zeros(robot.nv)).T
 
 ## Display the robot in Gepetto Viewer
@@ -121,7 +141,7 @@ for i, name in enumerate(foot_frames):
 	contacts[i] = tsid.ContactPoint(name, robot, name, contactNormal, mu, fMin, fMax)
 	contacts[i].setKp(kp_contact * matlib.ones(3).T)
 	contacts[i].setKd(2.0 * np.sqrt(kp_contact) * matlib.ones(3).T)
-	H_ref = robot.framePosition(data, model.getFrameId(name))
+	H_ref = robot.framePosition(data, model_updated.getFrameId(name))
 	contacts[i].setReference(H_ref)
 	contacts[i].useLocalFrame(False)
 	invdyn.addRigidContact(contacts[i], w_forceRef, 1.0, 1)
