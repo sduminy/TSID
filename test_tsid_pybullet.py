@@ -9,7 +9,7 @@ import pybullet_data
 import time
 
 from IPython import embed 
-
+t_start_code = time.time()
 pin.switchToNumpyMatrix()
 
 ########################################################################
@@ -59,40 +59,20 @@ robot_display = pin.RobotWrapper.BuildFromURDF(urdf, [modelPath, ], pin.JointMod
 robot_display.initViewer(loadModel=True)
 
 
-## Take the model of the robot 
+## Take the model of the robot and load its reference configuration
 
 model = robot.model()
-
-## Modify the Position Bounds of the robot
-model_updated = model.copy()
-
-lowerBoundsMatrix = model.lowerPositionLimit.copy()
-lowerBoundsMatrix[9] = -2.4
-lowerBoundsMatrix[12] = -2.4
-lowerBoundsMatrix[15] = 0.8
-lowerBoundsMatrix[18] = 0.8
-model_updated.lowerPositionLimit = lowerBoundsMatrix
-
-upperBoundsMatrix = model.upperPositionLimit.copy()
-upperBoundsMatrix[9] = -0.8
-upperBoundsMatrix[12] = -0.8
-upperBoundsMatrix[15] = 2.4
-upperBoundsMatrix[18] = 2.4
-model_updated.upperPositionLimit = upperBoundsMatrix
-
-## Load its reference configuration
- 
-pin.loadReferenceConfigurations(model_updated, srdf, False)
+pin.loadReferenceConfigurations(model, srdf, False)
 
 # Set the current configuration q to the robot configuration straight_standing
-qdes = model_updated.referenceConfigurations['straight_standing']
-vdes = np.matrix(np.zeros(robot.nv)).T
+qdes12 = model.referenceConfigurations['straight_standing']
+vdes12 = np.matrix(np.zeros(robot.nv)).T
 
 ## Display the robot in Gepetto Viewer
 
 robot_display.displayCollisions(False)
 robot_display.displayVisuals(True)
-robot_display.display(qdes)
+robot_display.display(qdes12)
 
 
 ## Creation of the Invverse Dynamics HQP problem using the robot
@@ -100,7 +80,7 @@ robot_display.display(qdes)
 
 invdyn = tsid.InverseDynamicsFormulationAccForce("tsid", robot, False)
 # Compute the problem data with a solver based on EiQuadProg
-invdyn.computeProblemData(t, qdes, vdes)
+invdyn.computeProblemData(t, qdes12, vdes12)
 # Get the initial data
 data = invdyn.data()
 
@@ -141,7 +121,7 @@ for i, name in enumerate(foot_frames):
 	contacts[i] = tsid.ContactPoint(name, robot, name, contactNormal, mu, fMin, fMax)
 	contacts[i].setKp(kp_contact * matlib.ones(3).T)
 	contacts[i].setKd(2.0 * np.sqrt(kp_contact) * matlib.ones(3).T)
-	H_ref = robot.framePosition(data, model_updated.getFrameId(name))
+	H_ref = robot.framePosition(data, model.getFrameId(name))
 	contacts[i].setReference(H_ref)
 	contacts[i].useLocalFrame(False)
 	invdyn.addRigidContact(contacts[i], w_forceRef, 1.0, 1)
@@ -159,7 +139,7 @@ sampleCom = trajCom.computeNext()
 comTask.setReference(sampleCom)
 	
 # POSTURE Task
-q_ref = qdes[7:] # Initial value of the joints of the robot (in half_sitting position without the freeFlyer (6 first values))
+q_ref = qdes12[7:] # Initial value of the joints of the robot (in half_sitting position without the freeFlyer (6 first values))
 trajPosture = tsid.TrajectoryEuclidianConstant("traj_joint", q_ref)
 
 samplePosture = trajPosture.computeNext()
@@ -178,13 +158,6 @@ lockTask.setReference(sampleLock)
 solver = tsid.SolverHQuadProgFast("qp solver")
 # Resize the solver to fit the number of variables, equality and inequality constraints
 solver.resize(invdyn.nVar, invdyn.nEq, invdyn.nIn)
-
-# Initialization of the plot variables which will be updated during the simulation loop 
-# These variables describe the acceleration of the shoulders joints
-acc_shoulder1 = matlib.empty((1, N_SIMULATION))
-acc_shoulder2 = matlib.empty((1, N_SIMULATION))
-acc_shoulder3 = matlib.empty((1, N_SIMULATION))
-acc_shoulder4 = matlib.empty((1, N_SIMULATION))
 
 
 ########################################################################
@@ -234,7 +207,7 @@ realTimeSimulation = True
 
 ## Function called from the main loop which computes the inverse dynamic problem and returns the torques
 def callback_torques():
-	global sol, t, v_prev, q
+	global sol, t, v_prev, q, vdes12, qdes12
 	
 	## Data collection from PyBullet
 	
@@ -243,16 +216,16 @@ def callback_torques():
 	baseVel = p.getBaseVelocity(robotId)
 	
 	# Joint vector for Pinocchio
-	q = np.vstack((np.array([baseState[0]]).transpose(), np.array([baseState[1]]).transpose(), np.array([[jointStates[i_joint][0] for i_joint in range(len(jointStates))]]).transpose()))
-	v = np.vstack((np.array([baseVel[0]]).transpose(), np.array([baseVel[1]]).transpose(), np.array([[jointStates[i_joint][1] for i_joint in range(len(jointStates))]]).transpose()))
-	v_dot = (v-v_prev)/dt
-	v_prev = v.copy()
+	q8 = np.vstack((np.array([baseState[0]]).transpose(), np.array([baseState[1]]).transpose(), np.array([[jointStates[i_joint][0] for i_joint in range(len(jointStates))]]).transpose()))
+	v8 = np.vstack((np.array([baseVel[0]]).transpose(), np.array([baseVel[1]]).transpose(), np.array([[jointStates[i_joint][1] for i_joint in range(len(jointStates))]]).transpose()))
+	v_dot = (v8-v_prev)/dt
+	v_prev = v8.copy()
 	
 	
 	## Conversion (from 8 to 12 DOF) and TSID computation 
 	
-	q12 = np.concatenate((q[:7], np.matrix([0.]), q[7:9], np.matrix([0.]), q[9:11], np.matrix([0.]), q[11:13], np.matrix([0.]), q[13:15]))
-	v12 = np.concatenate((v[:6], np.matrix([0.]), v[6:8], np.matrix([0.]), v[8:10], np.matrix([0.]), v[10:12], np.matrix([0.]), v[12:14]))
+	q12 = np.concatenate((q8[:7], np.matrix([0.]), q8[7:9], np.matrix([0.]), q8[9:11], np.matrix([0.]), q8[11:13], np.matrix([0.]), q8[13:15]))
+	v12 = np.concatenate((v8[:6], np.matrix([0.]), v8[6:8], np.matrix([0.]), v8[8:10], np.matrix([0.]), v8[10:12], np.matrix([0.]), v8[12:14]))
 	
 	HQPData = invdyn.computeProblemData(t, q12, v12)
 	
@@ -261,6 +234,11 @@ def callback_torques():
 	tau = invdyn.getActuatorForces(sol)
 	dv = invdyn.getAccelerations(sol)
 	
+	vdes12 += dt*dv
+	qdes12 = pin.integrate(model, qdes12, dt*vdes12)
+	
+	vdes8 = np.concatenate((vdes12[:6], vdes12[7:9], vdes12[10:12], vdes12[13:15], vdes12[16:18]))
+	qdes8 = np.concatenate((vdes12[:7], qdes12[8:10], qdes12[11:13], qdes12[14:16], qdes12[17:19]))
 	
 	## Time incrementation and display update
 	
@@ -273,13 +251,20 @@ def callback_torques():
 	
 	torques = np.concatenate((tau[1:3], tau[4:6], tau[7:9], tau[10:12]))
 	
+	## Emergency stop
 	
+	if (q12[9] < -2.4) or (q12[12] < -2.4) or (q12[15] < 0.8) or (q12[18] < 0.8) or (q12[9] > -0.8) or (q12[12] > -0.8) or (q12[15] > 2.4) or (q12[18] > 2.4):
+		torques = np.zeros((8,1))
+		Kp_PD = 0.
+		Kd_PD = 0.
+		#torques = Kp_PD * (qdes8[7:] - q8[7:]) + Kd_PD * (vdes8[6:] - v8[6:])
+	 		
 	## Saturation to limit the maximal torque
 	
 	t_max = 5
 	torques = np.maximum(np.minimum(torques, t_max * np.ones((8,1))), -t_max * np.ones((8,1)))
 	
-	return torques, dv[7], dv[10], dv[13], dv[16]
+	return torques
 
 
 ########################################################################
@@ -288,13 +273,15 @@ def callback_torques():
 
 ## Launch the simulation
 
+t_start_simulation = time.time()
+
 for i in range (N_SIMULATION):
 	
 	if realTimeSimulation:
-		t0 = time.clock()
+		time_start = time.time()
 	
 	# Callback Pinocchio to get joint torques
-	jointTorques, acc_shoulder1[:,i], acc_shoulder2[:,i], acc_shoulder3[:,i], acc_shoulder4[:,i] = callback_torques()
+	jointTorques = callback_torques()
 	
 	if(sol.status != 0):
 		print ("QP problem could not be solved ! Error code:", sol.status)
@@ -307,34 +294,14 @@ for i in range (N_SIMULATION):
 	p.stepSimulation()
 	
 	if realTimeSimulation:
-		t_sleep = dt - (time.clock()-t0)
-		if t_sleep > 0:
-			time.sleep(t_sleep)	
+		time_spent = time.time() - time_start
+		if time_spent < dt:
+			time.sleep(dt)	
 
-########################################################################
-#                              Results                                 #
-########################################################################
+t_end_simulation = time.time() - t_start_simulation
 
-## Plot the results
+print("Simulation time of the whole code : ", time.time() - t_start_code)
+print("Simulation time of one iteration of TSID is : ", time_spent)
+print("Simulation time should be : ", N_SIMULATION*dt)
+print("Yet, simulation time is : ", t_end_simulation)
 
-import matplotlib.pylab as plt
-
-time = np.arange(0.0, N_SIMULATION*dt, dt)
-
-# Acceleration tracking of the 4 shoulders
-plt.figure()
-plt.subplot(411)
-plt.plot(time, acc_shoulder1[0,:].A1, label='acceleration shoulder 1')
-plt.title('Acceleration of the 4 shoulders during the simulation')
-plt.legend()
-plt.subplot(412)
-plt.plot(time, acc_shoulder2[0,:].A1, label='acceleration shoulder 2')
-plt.legend()
-plt.subplot(413)
-plt.plot(time, acc_shoulder3[0,:].A1, label='acceleration shoulder 3')
-plt.legend()
-plt.subplot(414)
-plt.plot(time, acc_shoulder4[0,:].A1, label='acceleration shoulder 4')
-plt.legend()
-
-plt.show()
