@@ -9,7 +9,9 @@ import pybullet_data
 import time
 
 from IPython import embed 
+
 t_start_code = time.time()
+
 pin.switchToNumpyMatrix()
 
 ########################################################################
@@ -36,6 +38,9 @@ fMin = 1.0		# minimum normal force
 fMax = 100.0  	# maximum normal force
 foot_frames = ['HL_FOOT', 'HR_FOOT', 'FL_FOOT', 'FR_FOOT']  # tab with all the foot frames names
 contactNormal = np.matrix([0., 0., 1.]).T  # direction of the normal to the contact surface
+
+# Emergency stop
+Emergency_Stop = False
 
 # Simulation parameters
 N_SIMULATION = 30000	# number of time steps simulated
@@ -207,7 +212,7 @@ realTimeSimulation = True
 
 ## Function called from the main loop which computes the inverse dynamic problem and returns the torques
 def callback_torques():
-	global sol, t, v_prev, q, vdes12, qdes12
+	global sol, t, v_prev, q, vdes12, qdes12, Emergency_Stop
 	
 	## Data collection from PyBullet
 	
@@ -245,27 +250,26 @@ def callback_torques():
 	t += dt
 	
 	robot_display.display(q12)
-		
-		
-	## Torque controller (conversion from 12 to 8 DOF)
-	
-	torques = np.concatenate((tau[1:3], tau[4:6], tau[7:9], tau[10:12]))
 	
 	## Emergency stop
 	
 	if (q12[9] < -2.4) or (q12[12] < -2.4) or (q12[15] < 0.8) or (q12[18] < 0.8) or (q12[9] > -0.8) or (q12[12] > -0.8) or (q12[15] > 2.4) or (q12[18] > 2.4):
-		torques = np.zeros((8,1))
-		Kp_PD = 0.
-		Kd_PD = 0.
-		#torques = Kp_PD * (qdes8[7:] - q8[7:]) + Kd_PD * (vdes8[6:] - v8[6:])
-	 		
+		Emergency_Stop = True
+			
+	## Torque controller (conversion from 12 to 8 DOF)
+	
+	torques = np.concatenate((tau[1:3], tau[4:6], tau[7:9], tau[10:12]))
+	
+	if Emergency_Stop:
+		Kd = .2
+		torques = Kd * (- v8[6:])
+		 		
 	## Saturation to limit the maximal torque
 	
 	t_max = 5
 	torques = np.maximum(np.minimum(torques, t_max * np.ones((8,1))), -t_max * np.ones((8,1)))
 	
 	return torques
-
 
 ########################################################################
 #                             Simulator                                #
