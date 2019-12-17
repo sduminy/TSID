@@ -8,9 +8,8 @@ import tsid
 import pybullet_data
 import time
 
-from IPython import embed 
-
 pin.switchToNumpyMatrix()
+
 
 ########################################################################
 #                          TSID Controller                             #
@@ -21,22 +20,23 @@ pin.switchToNumpyMatrix()
 # Definition of the tasks gains and weights
 w_com = 10.0			# weight of the CoM task
 w_posture = 1.0  		# weight of the posture task
-w_forceRef = 1e-3		# weight of the forces regularization for the contacts
 w_lock = 10.0			# weight of the lock task
 
 kp_com = 100.0 			# proportionnal gain of the CoM task
 kp_posture = 10.0  		# proportionnal gain of the posture task
 kd_posture = 10.0		# derivative gain of the posture task
-kp_contact = 0.0		# proportionnal gain of the contacts
 kp_lock = 0.0			# proportionnal gain of the lock task
 
 # For the contacts
-mu = 0.3  		# friction coefficient
-fMin = 1.0		# minimum normal force
-fMax = 100.0  	# maximum normal force
+mu = 0.3  				# friction coefficient
+fMin = 1.0				# minimum normal force
+fMax = 100.0  			# maximum normal force
+
+w_forceRef = 1e-3		# weight of the forces regularization
+kp_contact = 0.0		# proportionnal gain for the contacts
+
 foot_frames = ['HL_FOOT', 'HR_FOOT', 'FL_FOOT', 'FR_FOOT']  # tab with all the foot frames names
 contactNormal = np.matrix([0., 0., 1.]).T  # direction of the normal to the contact surface
-
 
 # Simulation parameters
 N_SIMULATION = 10000	# number of time steps simulated
@@ -44,15 +44,23 @@ dt = 0.001				# controller time step
 
 t = 0.0  				# time
 
-## Set the path where the urdf and srdf file of the robot is registered
+# Set the simulation in real time
+realTimeSimulation = True
+
+
+## Set the paths where the urdf and srdf file of the robot are registered
 
 modelPath = "/opt/openrobots/lib/python3.5/site-packages/../../../share/example-robot-data/robots"
 urdf = modelPath + "/solo_description/robots/solo12.urdf"
 srdf = modelPath + "/solo_description/srdf/solo.srdf"
 vector = pin.StdVec_StdString()
 vector.extend(item for item in modelPath)
-# Create the robot wrapper from the urdf model
+
+
+## Create the robot wrapper from the urdf model
+
 robot = tsid.RobotWrapper(urdf, vector, pin.JointModelFreeFlyer(), False)
+
 
 ## Creation of the robot wrapper for the Gepetto Viewer
 
@@ -65,9 +73,13 @@ robot_display.initViewer(loadModel=True)
 model = robot.model()
 pin.loadReferenceConfigurations(model, srdf, False)
 
-# Set the current configuration q to the robot configuration straight_standing
+
+## Set the initial configuration vector to the robot configuration straight_standing
+## And set the initial velocity to zero
+
 qdes12 = model.referenceConfigurations['straight_standing']
 vdes12 = np.matrix(np.zeros(robot.nv)).T
+
 
 ## Display the robot in Gepetto Viewer
 
@@ -92,26 +104,23 @@ data = invdyn.data()
 comTask = tsid.TaskComEquality("task-com", robot)
 comTask.setKp(kp_com * matlib.ones(3).T)  # Proportional gain of the CoM task
 comTask.setKd(2.0 * np.sqrt(kp_com) * matlib.ones(3).T) # Derivative gain 
-# Add the task to the HQP with weight = w_com, priority level = 1 (in the cost function) and a transition duration = 0.0
-invdyn.addMotionTask(comTask, w_com, 1, 0.0)
+invdyn.addMotionTask(comTask, w_com, 1, 0.0) # Add the task to the HQP with weight = w_com, priority level = 1 (in the cost function) and a transition duration = 0.0
 
 # POSTURE Task
 postureTask = tsid.TaskJointPosture("task-posture", robot)
-postureTask.setKp(kp_posture * matlib.ones(robot.nv).T) # Proportional gain 
-postureTask.setKd(kd_posture * matlib.ones(robot.nv).T) # Derivative gain 
-# Add the task to the HQP with weight = w_posture, priority level = 1 (in the cost function) and a transition duration = 0.0
+postureTask.setKp(kp_posture * matlib.ones(robot.nv).T) 
+postureTask.setKd(kd_posture * matlib.ones(robot.nv).T) 
 invdyn.addMotionTask(postureTask, w_posture, 1, 0.0)
 
 # LOCK Task
 lockTask = tsid.TaskJointPosture("task-lock-shoulder", robot)
-lockTask.setKp(kp_lock * matlib.ones(robot.nv).T) # Proportional gain 
-lockTask.setKd(2.0 * np.sqrt(kp_lock) * matlib.ones(robot.nv).T) # Derivative gain
-mask = np.matrix(np.zeros(robot.nv-6))
+lockTask.setKp(kp_lock * matlib.ones(robot.nv).T) 
+lockTask.setKd(2.0 * np.sqrt(kp_lock) * matlib.ones(robot.nv).T) 
+mask = np.matrix(np.zeros(robot.nv-6))	# Add a mask to take into account only the shoulders joints
 for i in [0, 3, 6, 9]:
 	mask[0,i] = 1
 lockTask.mask(mask.T)
-# Add the task to the HQP with weight = w_lock, priority level = 0 (as real constraint) and a transition duration = 0.0
-invdyn.addMotionTask(lockTask, w_lock, 0, 0.0)
+invdyn.addMotionTask(lockTask, w_lock, 0, 0.0) # Add the task as real constraint (priority level = 0)
 
 
 ## CONTACTS
@@ -140,13 +149,14 @@ sampleCom = trajCom.computeNext()
 comTask.setReference(sampleCom)
 	
 # POSTURE Task
-q_ref = qdes12[7:] # Initial value of the joints of the robot (in half_sitting position without the freeFlyer (6 first values))
+q_ref = qdes12[7:] # Initial value of the joints of the robot (in straight_standing position without the freeFlyer (6 first values))
 trajPosture = tsid.TrajectoryEuclidianConstant("traj_joint", q_ref)
 
 samplePosture = trajPosture.computeNext()
 postureTask.setReference(samplePosture)
 
-# LOCK Task
+# LOCK Task 
+# The mask is enough to set the shoulder acceleration to 0 because 0 is the initial configuration for the shoulders
 trajLock = tsid.TrajectoryEuclidianConstant("traj_lock_shoulder", q_ref)
 
 sampleLock = trajLock.computeNext()
@@ -166,9 +176,9 @@ solver.resize(invdyn.nVar, invdyn.nEq, invdyn.nIn)
 ########################################################################
 
 # Start the client for PyBullet
-physicsClient = p.connect(p.GUI)#or p.DIRECT for non-graphical version
+physicsClient = p.connect(p.GUI) # or p.DIRECT for non-graphical version
 
-# Set gravity (disabled by default)
+# Set gravity
 p.setGravity(0,0,-9.81)
 
 # Load horizontal plane
@@ -185,7 +195,7 @@ robotId = p.loadURDF("solo.urdf",robotStartPos, robotStartOrientation)
 revoluteJointIndices = [0,1, 3,4, 6,7, 9,10]
 p.setJointMotorControlArray(robotId, jointIndices = revoluteJointIndices, controlMode = p.VELOCITY_CONTROL,targetVelocities = [0.0 for m in revoluteJointIndices], forces = [0.0 for m in revoluteJointIndices])
 								 
-# Initialize the joint configuration
+# Initialize the joint configuration to the position straight_standing
 initial_joint_positions = [0.8, -1.6, 0.8, -1.6, -0.8, 1.6, -0.8, 1.6]
 for i in range (len(initial_joint_positions)):
 	p.resetJointState(robotId, revoluteJointIndices[i], initial_joint_positions[i])
@@ -198,8 +208,6 @@ p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_
 # Set time step for the simulation
 p.setTimeStep(dt)
 
-realTimeSimulation = True
-
 
 ########################################################################
 #                      Torque Control function                         #
@@ -207,7 +215,8 @@ realTimeSimulation = True
 
 ## Function called from the main loop which computes the inverse dynamic problem and returns the torques
 def callback_torques():
-	global sol, t
+	
+	global sol, t	# variables needed/computed during the simulation
 	
 	## Data collection from PyBullet
 	
@@ -215,28 +224,33 @@ def callback_torques():
 	baseState   = p.getBasePositionAndOrientation(robotId)
 	baseVel = p.getBaseVelocity(robotId)
 	
-	# Joint vector for Pinocchio
+	# Joints configuration and velocity vector
 	q8 = np.vstack((np.array([baseState[0]]).T, np.array([baseState[1]]).T, np.array([[jointStates[i_joint][0] for i_joint in range(len(jointStates))]]).T))
 	v8 = np.vstack((np.array([baseVel[0]]).T, np.array([baseVel[1]]).T, np.array([[jointStates[i_joint][1] for i_joint in range(len(jointStates))]]).T))
 	
-	## Conversion (from 8 to 12 DOF) and TSID computation 
-	
+	# Conversion (from 8 to 12 DOF) and TSID computation 
 	q12 = np.concatenate((q8[:7], np.matrix([0.]), q8[7:9], np.matrix([0.]), q8[9:11], np.matrix([0.]), q8[11:13], np.matrix([0.]), q8[13:15]))
 	v12 = np.concatenate((v8[:6], np.matrix([0.]), v8[6:8], np.matrix([0.]), v8[8:10], np.matrix([0.]), v8[10:12], np.matrix([0.]), v8[12:14]))
+	
+	
+	## Resolution of the HQP problem
 	
 	HQPData = invdyn.computeProblemData(t, q12, v12)
 	
 	sol = solver.solve(HQPData)
 	
+	
+	## Torques computation
+	
 	tau = invdyn.getActuatorForces(sol)
 
 
-	## Time incrementation and display update
+	## Time incrementation
 	
 	t += dt
 	
 	
-	## Emergency stop
+	## Emergency stop initialization
 	
 	Emergency_Stop = (q12[9] < -2.4) or (q12[12] < -2.4) or (q12[15] < 0.8) or (q12[18] < 0.8) or (q12[9] > -0.8) or (q12[12] > -0.8) or (q12[15] > 2.4) or (q12[18] > 2.4)
 	
@@ -245,10 +259,14 @@ def callback_torques():
 	
 	torques = np.concatenate((tau[1:3], tau[4:6], tau[7:9], tau[10:12]))
 	
+	
+	## Control in case an emergency_stop is detected
+	
 	if Emergency_Stop:
 		Kd = .2
 		torques = Kd * (- v8[6:])
-		 		
+	
+	 		
 	## Saturation to limit the maximal torque
 	
 	t_max = 5.0
@@ -256,22 +274,24 @@ def callback_torques():
 	
 	return torques
 
+
 ########################################################################
 #                             Simulator                                #
 ########################################################################
 
 ## Launch the simulation
 
-t_list = []
+t_list = []	# list to verify that each iteration of the simulation is less than 1 ms
 
 for i in range (N_SIMULATION):
 	
-	if realTimeSimulation:
+	if realTimeSimulation:	
 		time_start = time.time()
 	
 	# Callback Pinocchio to get joint torques
 	jointTorques = callback_torques()
 	
+	# Stop the simulation if the QP problem can't be solved
 	if(sol.status != 0):
 		print ("QP problem could not be solved ! Error code:", sol.status)
 		break
@@ -285,11 +305,15 @@ for i in range (N_SIMULATION):
 	if realTimeSimulation:
 		time_spent = time.time() - time_start
 		if time_spent < dt:
-			time.sleep(dt-time_spent)
+			time.sleep(dt-time_spent)	# ensure the simulation runs in real time
 			
-	t_list.append(time_spent)	
+	t_list.append(time_spent)
+
+## Plot the list of the duration of each iteration
+## It should be less than 0.001 s
 
 import matplotlib.pylab as plt
 
 plt.plot(t_list, '+k')
+plt.grid()
 plt.show()
