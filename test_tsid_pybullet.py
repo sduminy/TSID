@@ -37,8 +37,6 @@ fMax = 100.0  	# maximum normal force
 foot_frames = ['HL_FOOT', 'HR_FOOT', 'FL_FOOT', 'FR_FOOT']  # tab with all the foot frames names
 contactNormal = np.matrix([0., 0., 1.]).T  # direction of the normal to the contact surface
 
-# Emergency stop
-Emergency_Stop = False
 
 # Simulation parameters
 N_SIMULATION = 10000	# number of time steps simulated
@@ -197,6 +195,9 @@ jointTorques = [0.0 for m in revoluteJointIndices]
 
 p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_CONTROL, forces=jointTorques)
 
+# Set time step for the simulation
+p.setTimeStep(dt)
+
 realTimeSimulation = True
 
 
@@ -206,7 +207,7 @@ realTimeSimulation = True
 
 ## Function called from the main loop which computes the inverse dynamic problem and returns the torques
 def callback_torques():
-	global sol, t, Emergency_Stop
+	global sol, t
 	
 	## Data collection from PyBullet
 	
@@ -215,8 +216,8 @@ def callback_torques():
 	baseVel = p.getBaseVelocity(robotId)
 	
 	# Joint vector for Pinocchio
-	q8 = np.vstack((np.array([baseState[0]]).transpose(), np.array([baseState[1]]).transpose(), np.array([[jointStates[i_joint][0] for i_joint in range(len(jointStates))]]).transpose()))
-	v8 = np.vstack((np.array([baseVel[0]]).transpose(), np.array([baseVel[1]]).transpose(), np.array([[jointStates[i_joint][1] for i_joint in range(len(jointStates))]]).transpose()))
+	q8 = np.vstack((np.array([baseState[0]]).T, np.array([baseState[1]]).T, np.array([[jointStates[i_joint][0] for i_joint in range(len(jointStates))]]).T))
+	v8 = np.vstack((np.array([baseVel[0]]).T, np.array([baseVel[1]]).T, np.array([[jointStates[i_joint][1] for i_joint in range(len(jointStates))]]).T))
 	
 	## Conversion (from 8 to 12 DOF) and TSID computation 
 	
@@ -237,9 +238,9 @@ def callback_torques():
 	
 	## Emergency stop
 	
-	if (q12[9] < -2.4) or (q12[12] < -2.4) or (q12[15] < 0.8) or (q12[18] < 0.8) or (q12[9] > -0.8) or (q12[12] > -0.8) or (q12[15] > 2.4) or (q12[18] > 2.4):
-		Emergency_Stop = True
-			
+	Emergency_Stop = (q12[9] < -2.4) or (q12[12] < -2.4) or (q12[15] < 0.8) or (q12[18] < 0.8) or (q12[9] > -0.8) or (q12[12] > -0.8) or (q12[15] > 2.4) or (q12[18] > 2.4)
+	
+				
 	## Torque controller (conversion from 12 to 8 DOF)
 	
 	torques = np.concatenate((tau[1:3], tau[4:6], tau[7:9], tau[10:12]))
