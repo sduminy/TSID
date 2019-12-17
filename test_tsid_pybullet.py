@@ -10,8 +10,6 @@ import time
 
 from IPython import embed 
 
-t_start_code = time.time()
-
 pin.switchToNumpyMatrix()
 
 ########################################################################
@@ -43,7 +41,7 @@ contactNormal = np.matrix([0., 0., 1.]).T  # direction of the normal to the cont
 Emergency_Stop = False
 
 # Simulation parameters
-N_SIMULATION = 30000	# number of time steps simulated
+N_SIMULATION = 10000	# number of time steps simulated
 dt = 0.001				# controller time step
 
 t = 0.0  				# time
@@ -169,10 +167,6 @@ solver.resize(invdyn.nVar, invdyn.nEq, invdyn.nIn)
 #                              PyBullet                                #
 ########################################################################
 
-# Initialization of PyBullet variables 
-
-v_prev = np.matrix(np.zeros(robot.nv-4)).T  # velocity during the previous time step, of size (robot.nv,1)
-
 # Start the client for PyBullet
 physicsClient = p.connect(p.GUI)#or p.DIRECT for non-graphical version
 
@@ -212,7 +206,7 @@ realTimeSimulation = True
 
 ## Function called from the main loop which computes the inverse dynamic problem and returns the torques
 def callback_torques():
-	global sol, t, v_prev, q, vdes12, qdes12, Emergency_Stop
+	global sol, t, Emergency_Stop
 	
 	## Data collection from PyBullet
 	
@@ -223,9 +217,6 @@ def callback_torques():
 	# Joint vector for Pinocchio
 	q8 = np.vstack((np.array([baseState[0]]).transpose(), np.array([baseState[1]]).transpose(), np.array([[jointStates[i_joint][0] for i_joint in range(len(jointStates))]]).transpose()))
 	v8 = np.vstack((np.array([baseVel[0]]).transpose(), np.array([baseVel[1]]).transpose(), np.array([[jointStates[i_joint][1] for i_joint in range(len(jointStates))]]).transpose()))
-	v_dot = (v8-v_prev)/dt
-	v_prev = v8.copy()
-	
 	
 	## Conversion (from 8 to 12 DOF) and TSID computation 
 	
@@ -237,19 +228,12 @@ def callback_torques():
 	sol = solver.solve(HQPData)
 	
 	tau = invdyn.getActuatorForces(sol)
-	dv = invdyn.getAccelerations(sol)
-	
-	vdes12 += dt*dv
-	qdes12 = pin.integrate(model, qdes12, dt*vdes12)
-	
-	vdes8 = np.concatenate((vdes12[:6], vdes12[7:9], vdes12[10:12], vdes12[13:15], vdes12[16:18]))
-	qdes8 = np.concatenate((vdes12[:7], qdes12[8:10], qdes12[11:13], qdes12[14:16], qdes12[17:19]))
-	
+
+
 	## Time incrementation and display update
 	
 	t += dt
 	
-	robot_display.display(q12)
 	
 	## Emergency stop
 	
@@ -266,7 +250,7 @@ def callback_torques():
 		 		
 	## Saturation to limit the maximal torque
 	
-	t_max = 5
+	t_max = 5.0
 	torques = np.maximum(np.minimum(torques, t_max * np.ones((8,1))), -t_max * np.ones((8,1)))
 	
 	return torques
@@ -277,7 +261,7 @@ def callback_torques():
 
 ## Launch the simulation
 
-t_start_simulation = time.time()
+t_list = []
 
 for i in range (N_SIMULATION):
 	
@@ -300,12 +284,11 @@ for i in range (N_SIMULATION):
 	if realTimeSimulation:
 		time_spent = time.time() - time_start
 		if time_spent < dt:
-			time.sleep(dt)	
+			time.sleep(dt-time_spent)
+			
+	t_list.append(time_spent)	
 
-t_end_simulation = time.time() - t_start_simulation
+import matplotlib.pylab as plt
 
-print("Simulation time of the whole code : ", time.time() - t_start_code)
-print("Simulation time of one iteration of TSID is : ", time_spent)
-print("Simulation time should be : ", N_SIMULATION*dt)
-print("Yet, simulation time is : ", t_end_simulation)
-
+plt.plot(t_list, '+k')
+plt.show()
