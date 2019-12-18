@@ -24,7 +24,7 @@ w_lock = 10.0			# weight of the lock task
 
 kp_com = 100.0 			# proportionnal gain of the CoM task
 kp_posture = 10.0  		# proportionnal gain of the posture task
-kd_posture = 10.0		# derivative gain of the posture task
+kd_posture = 20.0		# derivative gain of the posture task
 kp_lock = 0.0			# proportionnal gain of the lock task
 
 # For the contacts
@@ -43,6 +43,8 @@ N_SIMULATION = 10000	# number of time steps simulated
 dt = 0.001				# controller time step
 
 t = 0.0  				# time
+
+Emergency_Stop = False	# emergency stop initialization
 
 # Set the simulation in real time
 realTimeSimulation = True
@@ -216,17 +218,16 @@ p.setTimeStep(dt)
 ## Function called from the main loop which computes the inverse dynamic problem and returns the torques
 def callback_torques():
 	
-	global sol, t	# variables needed/computed during the simulation
+	global sol, t, Emergency_Stop	# variables needed/computed during the simulation
 	
 	## Data collection from PyBullet
 	
 	jointStates = p.getJointStates(robotId, revoluteJointIndices) # State of all joints
 	baseState   = p.getBasePositionAndOrientation(robotId)
-	baseVel = p.getBaseVelocity(robotId)
 	
 	# Joints configuration and velocity vector
 	q8 = np.vstack((np.array([baseState[0]]).T, np.array([baseState[1]]).T, np.array([[jointStates[i_joint][0] for i_joint in range(len(jointStates))]]).T))
-	v8 = np.vstack((np.array([baseVel[0]]).T, np.array([baseVel[1]]).T, np.array([[jointStates[i_joint][1] for i_joint in range(len(jointStates))]]).T))
+	v8 = np.vstack((np.zeros((6,1)), np.array([[jointStates[i_joint][1] for i_joint in range(len(jointStates))]]).T))
 	
 	# Conversion (from 8 to 12 DOF) and TSID computation 
 	q12 = np.concatenate((q8[:7], np.matrix([0.]), q8[7:9], np.matrix([0.]), q8[9:11], np.matrix([0.]), q8[11:13], np.matrix([0.]), q8[13:15]))
@@ -252,7 +253,7 @@ def callback_torques():
 	
 	## Emergency stop initialization
 	
-	Emergency_Stop = (q12[9] < -2.4) or (q12[12] < -2.4) or (q12[15] < 0.8) or (q12[18] < 0.8) or (q12[9] > -0.8) or (q12[12] > -0.8) or (q12[15] > 2.4) or (q12[18] > 2.4)
+	Emergency_Stop = Emergency_Stop or (q12[9] < -2.4) or (q12[12] < -2.4) or (q12[15] < 0.8) or (q12[18] < 0.8) or (q12[9] > -0.8) or (q12[12] > -0.8) or (q12[15] > 2.4) or (q12[18] > 2.4)
 	
 				
 	## Torque controller (conversion from 12 to 8 DOF)
@@ -269,7 +270,7 @@ def callback_torques():
 	 		
 	## Saturation to limit the maximal torque
 	
-	t_max = 5.0
+	t_max = 2.5
 	torques = np.maximum(np.minimum(torques, t_max * np.ones((8,1))), -t_max * np.ones((8,1)))
 	
 	return torques
