@@ -22,7 +22,23 @@ pin.switchToNumpyMatrix()
 #                          TSID Controller                             #
 ########################################################################
 
-## Initialization
+class sinController:
+	def __init__(self, q0, v0, omega, t):
+		self.omega = omega
+		self.qdes = q0
+		qdes[0] = np.sin(omega*t) + q0[0]
+		self.vdes = v0
+		vdes[0] = omega * np.cos(omega*t)
+		self.ades = v0
+		ades[0] = -omega**2 * np.sin(omega*t)
+	def control(self, qmes, vmes):
+		HQPData = invdyn.computeProblemData(t, self.qdes, self.vdes)
+		self.sol = solver.solve(HQPData)
+		P = 1.0
+		D = 2.0 * np.sqrt(P)
+		tau = P * (self.qdes - qmes) - D * vmes
+		return tau
+
 
 # Parameters of the configuration test
 T = 1e100					# sinus period (s)
@@ -122,10 +138,12 @@ p.setTimeStep(dt)
 #                      Torque Control function                         #
 ########################################################################
 
+controller = sinController(q0, v0, omega, t)
+
 ## Function called from the main loop which computes the inverse dynamic problem and returns the torques
 def callback_torques():
 	
-	global sol, t, q0	# variables needed/computed during the simulation
+	controller = sinController(q0, v0, omega, t)
 	
 	## Data collection from PyBullet
 	
@@ -135,40 +153,11 @@ def callback_torques():
 	qmes = np.vstack((np.array([[jointStates[i_joint][0] for i_joint in range(len(jointStates))]]).T))
 	vmes = np.vstack((np.array([[jointStates[i_joint][1] for i_joint in range(len(jointStates))]]).T))
 	
-	## Definition of qdes and vdes
-	
-	qdes = q0.copy()
-	qdes[0] = np.sin(omega*t) + q0[0]
-	vdes = v0.copy()
-	vdes[0] = omega * np.cos(omega*t)
-	accdes = v0.copy()
-	accdes[0] = -omega**2 * np.sin(omega*t)
-	
-	
-	## Resolution of the HQP problem
-	
-	HQPData = invdyn.computeProblemData(t, qdes, vdes)
-	
-	sol = solver.solve(HQPData)
-	
-	
-	## Integration of the tsid solution
-	
-	#acc = invdyn.getAccelerations(sol)
-	#vdes += dt * accdes
-	#qdes = pin.integrate(model, qdes, vdes*dt)
-
-
 	## Time incrementation
 	
 	t += dt
 	
-				
-	## Torque PD controller 
-	
-	P = 10.0
-	D = 2 * np.sqrt(P)
-	torques = P * (qdes - qmes) - D * vmes 
+	torques = sinController.control(qmes, vmes)
 	
 		
 	## Saturation to limit the maximal torque
@@ -196,7 +185,7 @@ for i in range (N_SIMULATION):
 	jointTorques[0] = callback_torques()[0]
 	
 	# Stop the simulation if the QP problem can't be solved
-	if(sol.status != 0):
+	if(controller.sol.status != 0):
 		print ("QP problem could not be solved ! Error code:", sol.status)
 		break
 	
