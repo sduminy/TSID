@@ -6,7 +6,7 @@ import numpy as np
 import pybullet_data
 import time
 # import the controller class with its parameters
-from controller import P_controller, omega, q0
+from P_controller import controller, omega, q0
 
 pin.switchToNumpyMatrix()
 
@@ -47,7 +47,7 @@ revoluteJointIndices = [0,1, 3,4, 6,7, 9,10]
 p.setJointMotorControlArray(robotId, jointIndices = revoluteJointIndices, controlMode = p.VELOCITY_CONTROL,targetVelocities = [0.0 for m in revoluteJointIndices], forces = [0.0 for m in revoluteJointIndices])
 
 # Initialize the robot in a specific configuration
-#p.resetJointState(robotId, revoluteJointIndices[0], 0.2)						
+p.resetJointStatesMultiDof(robotId, revoluteJointIndices, q0)						
 
 # Enable torque control for revolute joints
 jointTorques = [0.0 for m in revoluteJointIndices]
@@ -64,8 +64,8 @@ p.setTimeStep(dt)
 ########################################################################
 #                             Simulator                                #
 ########################################################################
-
-myController = P_controller(q0, omega)
+print(omega)
+myController = controller(q0, omega)
 
 Qdes = []
 Qmes = []

@@ -17,10 +17,11 @@ pin.switchToNumpyMatrix()
 #                Class for a proportionnal Controller                  #
 ########################################################################
 
-class P_controller:
+class controller:
 	
 	def __init__(self, q0, omega):
 		self.omega = omega
+		self.q0 = q0
 		self.qdes = q0.copy()
 		self.vdes = np.zeros((8,1))
 		self.ades = np.zeros((8,1))
@@ -31,13 +32,13 @@ class P_controller:
 	####################################################################
 	def control(self, qmes, vmes, t):
 		# Definition of qdes, vdes and ades
-		self.qdes = np.sin(self.omega * t) + q0
+		self.qdes = np.sin(self.omega * t) + self.q0
 		self.vdes = self.omega * np.cos(self.omega * t)
 		self.ades = -self.omega**2 * np.sin(self.omega * t)
 		
 		# PD Torque controller
-		P = np.diag((10.0, 0, 0, 0, 0, 0, 0, 0))
-		D = np.diag((3.0, 0, 0, 0, 0, 0, 0, 0))
+		P = np.diag((10.0, .0, .0, .0, .0, .0, .0, .0))
+		D = np.diag((3.0, .0, .0, .0, .0, .0, .0, .0))
 		tau = np.array(np.matrix(np.diag(P * (self.qdes - qmes) - D * vmes)).T)
 		
 		# Saturation to limit the maximal torque
@@ -50,9 +51,10 @@ class P_controller:
 
 # Parameters of the desired trajectory
 
-T = 2 * np.pi				# sinus period (s)
-
 omega = np.zeros((8,1))		# sinus pulsation
-omega[0] = 2 * np.pi / T	
 
-q0 = np.zeros((8,1))		# initial configuration
+q0 = np.ones((8,1))		# initial configuration
+
+for i in range(8):
+	omega[i] = 1.0
+	q0[i] = 0.2
