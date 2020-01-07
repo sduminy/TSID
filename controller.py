@@ -31,14 +31,14 @@ class P_controller:
 	####################################################################
 	def control(self, qmes, vmes, t):
 		# Definition of qdes, vdes and ades
-		self.qdes[0] = np.sin(self.omega * t)
-		self.vdes[0] = self.omega * np.cos(self.omega * t)
-		self.ades[0] = -self.omega**2 * np.sin(self.omega * t)
+		self.qdes = np.sin(self.omega * t) + q0
+		self.vdes = self.omega * np.cos(self.omega * t)
+		self.ades = -self.omega**2 * np.sin(self.omega * t)
 		
 		# PD Torque controller
-		P = 10.0
-		D = 2.0 * np.sqrt(P)/2
-		tau = P * (self.qdes - qmes) - D * vmes
+		P = np.diag((10.0, 0, 0, 0, 0, 0, 0, 0))
+		D = np.diag((3.0, 0, 0, 0, 0, 0, 0, 0))
+		tau = np.array(np.matrix(np.diag(P * (self.qdes - qmes) - D * vmes)).T)
 		
 		# Saturation to limit the maximal torque
 		t_max = 2.5
@@ -46,9 +46,13 @@ class P_controller:
 		
 		self.error = np.linalg.norm(vmes)>1000
 		
-		return tau[0]
+		return tau
 
 # Parameters of the desired trajectory
-T = 2 * np.pi			# sinus period (s)
-omega = 2 * np.pi / T	# sinus pulsation
-q0 = np.zeros((8,1))
+
+T = 2 * np.pi				# sinus period (s)
+
+omega = np.zeros((8,1))		# sinus pulsation
+omega[0] = 2 * np.pi / T	
+
+q0 = np.zeros((8,1))		# initial configuration

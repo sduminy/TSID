@@ -91,7 +91,7 @@ for i in range (N_SIMULATION):
 	#         Retrieve the joint torques from the controller           #
 	####################################################################
 	
-	jointTorques[0] = myController.control(qmes, vmes, t)
+	jointTorques = myController.control(qmes, vmes, t)
 	
 	# Stop the simulation if there is an error with the controller
 	if(myController.error):
