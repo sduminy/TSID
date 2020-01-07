@@ -1,0 +1,82 @@
+# coding: utf8
+
+
+########################################################################
+#                                                                      #
+#            Loi de commande : tau = P(q^-q*) + D(v^)                  #
+#                                                                      #
+########################################################################
+
+import pinocchio as pin
+import numpy as np
+import tsid
+
+pin.switchToNumpyMatrix()
+
+
+########################################################################
+#                Class for a proportionnal Controller                  #
+########################################################################
+
+class controller:
+	
+	def __init__(self, q0, omega):
+		self.omega = omega
+		self.q0 = q0
+		self.qdes = q0.copy()
+		self.vdes = np.zeros((8,1))
+		self.ades = np.zeros((8,1))
+		self.error = False
+		
+	####################################################################
+	#                      Torque Control method                       #
+	####################################################################
+	def control(self, qmes, vmes, t):
+		# Definition of qdes, vdes and ades
+		self.qdes = np.sin(self.omega * t) + self.q0
+		self.vdes = self.omega * np.cos(self.omega * t)
+		self.ades = -self.omega**2 * np.sin(self.omega * t)
+		
+		########################################################################
+		#             Definition of the Model and TSID problem                 #
+		########################################################################
+		
+		## Set the paths where the urdf and srdf file of the robot are registered
+
+		modelPath = "/opt/openrobots/lib/python3.5/site-packages/../../../share/example-robot-data/robots"
+		urdf = modelPath + "/solo_description/robots/solo.urdf"
+		srdf = modelPath + "/solo_description/srdf/solo.srdf"
+		vector = pin.StdVec_StdString()
+		vector.extend(item for item in modelPath)
+
+		## Create the robot wrapper from the urdf model (without the free flyer)
+
+		robot = tsid.RobotWrapper(urdf, vector, False)
+
+		model = robot.model()
+		data = robot.data()
+		
+		tau_ff = pin.rnea(model, data, self.qdes, self.vdes, self.ades)		# feed-forward torques
+		
+		# PD Torque controller
+		P = np.diag((10.0, .0, .0, .0, .0, .0, .0, .0))
+		D = np.diag((3.0, .0, .0, .0, .0, .0, .0, .0))
+		tau = np.array(np.matrix(np.diag(P * (self.qdes - qmes) + D * (self.vdes - vmes) + tau_ff)).T)
+		
+		# Saturation to limit the maximal torque
+		t_max = 2.5
+		tau = np.maximum(np.minimum(tau, t_max * np.ones((8,1))), -t_max * np.ones((8,1)))
+		
+		self.error = np.linalg.norm(vmes)>1000
+		
+		return tau
+
+# Parameters of the desired trajectory
+
+omega = np.zeros((8,1))		# sinus pulsation
+
+q0 = np.ones((8,1))		# initial configuration
+
+for i in range(8):
+	omega[i] = 1.0
+	q0[i] = 0.2

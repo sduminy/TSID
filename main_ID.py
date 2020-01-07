@@ -6,7 +6,7 @@ import numpy as np
 import pybullet_data
 import time
 # import the controller class with its parameters
-from P_controller import controller, omega, q0
+from PDff_controller import controller, omega, q0
 
 pin.switchToNumpyMatrix()
 
