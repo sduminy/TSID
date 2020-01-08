@@ -3,7 +3,7 @@
 
 ########################################################################
 #                                                                      #
-#            Loi de commande : tau = P(q^-q*) + D(v^)                  #
+#            Loi de commande : tau = P(q*-q^) + D(v*-v^)               #
 #                                                                      #
 ########################################################################
 
@@ -14,7 +14,7 @@ pin.switchToNumpyMatrix()
 
 
 ########################################################################
-#                Class for a proportionnal Controller                  #
+#                      Class for a PD Controller                       #
 ########################################################################
 
 class controller:
@@ -37,8 +37,8 @@ class controller:
 		self.ades = -self.omega**2 * np.sin(self.omega * t)
 		
 		# PD Torque controller
-		P = np.diag((10.0, .0, .0, .0, .0, .0, .0, .0))
-		D = np.diag((3.0, .0, .0, .0, .0, .0, .0, .0))
+		P = np.diag((10.0, 5.0, 10.0, 5.0, 10.0, 5.0, 10.0, 5.0))
+		D = np.diag((3.0, 1.0, 3.0, 1.0, 3.0, 1.0, 3.0, 1.0))
 		tau = np.array(np.matrix(np.diag(P * (self.qdes - qmes) + D * (self.vdes - vmes))).T)
 		
 		# Saturation to limit the maximal torque

@@ -1,14 +1,11 @@
 # coding: utf8
 
 import pybullet as p 
-import pinocchio as pin
 import numpy as np 
 import pybullet_data
 import time
 # import the controller class with its parameters
 from PDff_controller import controller, omega, q0
-
-pin.switchToNumpyMatrix()
 
 
 ########################################################################
@@ -64,13 +61,15 @@ p.setTimeStep(dt)
 ########################################################################
 #                             Simulator                                #
 ########################################################################
-print(omega)
+
 myController = controller(q0, omega)
 
 Qdes = []
 Qmes = []
 Vdes = []
 Vmes = []
+tau0 = []
+t_list = []
 
 for i in range (N_SIMULATION):
 	
@@ -102,10 +101,11 @@ for i in range (N_SIMULATION):
 	p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_CONTROL, forces=jointTorques)
 	
 	# Tracking of the trajectories
-	Qdes.append(myController.qdes[0].copy())
+	tau0.append(jointTorques[0])
+	"""Qdes.append(myController.qdes[0].copy())
 	Vdes.append(myController.vdes[0].copy())
 	Qmes.append(qmes[0])
-	Vmes.append(vmes[0])
+	Vmes.append(vmes[0])"""
 	
 	# Compute one step of simulation
 	p.stepSimulation()
@@ -117,13 +117,15 @@ for i in range (N_SIMULATION):
 		time_spent = time.time() - time_start
 		if time_spent < dt:
 			time.sleep(dt-time_spent)	# ensure the simulation runs in real time
+	
+	t_list.append(time_spent)
 			
 
 ## Plot the tracking of the trajectories
 
 import matplotlib.pylab as plt
-
-plt.figure()
+"""
+plt.figure(1)
 plt.subplot(2,1,1)
 plt.plot(Qdes, 'b', label="Desired position")
 plt.plot(Qmes, 'r', label="Measured position")
@@ -135,4 +137,10 @@ plt.plot(Vdes, 'b', label="Desired velocity")
 plt.plot(Vmes, 'r', label="Measured velocity")
 plt.grid()
 plt.legend()
+plt.show()
+plt.figure(1)
+plt.plot(tau0)
+plt.show()"""
+plt.figure(2)
+plt.plot(t_list, 'k+')
 plt.show()
