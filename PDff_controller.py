@@ -28,15 +28,6 @@ class controller:
 		self.ades = np.zeros((8,1))
 		self.error = False
 		
-	####################################################################
-	#                      Torque Control method                       #
-	####################################################################
-	def control(self, qmes, vmes, t):
-		# Definition of qdes, vdes and ades
-		self.qdes = np.sin(self.omega * t) + self.q0
-		self.vdes = self.omega * np.cos(self.omega * t)
-		self.ades = -self.omega**2 * np.sin(self.omega * t)
-		
 		########################################################################
 		#             Definition of the Model and TSID problem                 #
 		########################################################################
@@ -52,15 +43,24 @@ class controller:
 		## Create the robot wrapper from the urdf model (without the free flyer)
 
 		robot = tsid.RobotWrapper(urdf, vector, False)
-
-		model = robot.model()
-		data = robot.data()
 		
-		tau_ff = pin.rnea(model, data, self.qdes, self.vdes, self.ades)		# feed-forward torques
+		self.model = robot.model()
+		self.data = robot.data()
+		
+	####################################################################
+	#                      Torque Control method                       #
+	####################################################################
+	def control(self, qmes, vmes, t):
+		# Definition of qdes, vdes and ades
+		self.qdes = np.sin(self.omega * t) + self.q0
+		self.vdes = self.omega * np.cos(self.omega * t)
+		self.ades = -self.omega**2 * np.sin(self.omega * t)
+		
+		tau_ff = pin.rnea(self.model, self.data, self.qdes, self.vdes, self.ades)		# feed-forward torques
 		
 		# PD Torque controller
-		P = np.diag((10.0, .0, .0, .0, .0, .0, .0, .0))
-		D = np.diag((3.0, .0, .0, .0, .0, .0, .0, .0))
+		P = np.diag((10.0, 5.0, 10.0, 5.0, 10.0, 5.0, 10.0, 5.0))
+		D = np.diag((3.0, 1.0, 3.0, 1.0, 3.0, 1.0, 3.0, 1.0))
 		tau = np.array(np.matrix(np.diag(P * (self.qdes - qmes) + D * (self.vdes - vmes) + tau_ff)).T)
 		
 		# Saturation to limit the maximal torque
