@@ -6,7 +6,8 @@ import pybullet_data
 import time
 # import the controller class with its parameters
 from PDff_controller import controller, omega, q0
-
+import Relief_controller
+import EmergencyStop_controller
 
 ########################################################################
 #                        Parameters definition                         #
@@ -20,6 +21,8 @@ t = 0.0  				# time
 
 # Set the simulation in real time
 realTimeSimulation = True
+# Initialize the error for the simulation time
+time_error = False
 
 
 ########################################################################
@@ -32,6 +35,9 @@ physicsClient = p.connect(p.GUI) # or p.DIRECT for non-graphical version
 # Load horizontal plane
 p.setAdditionalSearchPath(pybullet_data.getDataPath())
 planeId = p.loadURDF("plane.urdf")
+
+# Set the gravity
+p.setGravity(0,0,-9.81)
 
 # Load Quadruped robot
 robotStartPos = [0,0,0.5] 
@@ -63,12 +69,15 @@ p.setTimeStep(dt)
 ########################################################################
 
 myController = controller(q0, omega)
+myReliefController = Relief_controller.controller()
+myEmergencyStop = EmergencyStop_controller.controller()
 
-Qdes = []
-Qmes = []
-Vdes = []
-Vmes = []
-tau0 = []
+Qdes = [[],[],[],[],[],[],[],[]]
+Vdes = [[],[],[],[],[],[],[],[]]
+Qmes = [[],[],[],[],[],[],[],[]]
+Vmes = [[],[],[],[],[],[],[],[]]
+Tau = [[],[],[],[],[],[],[],[]]
+
 t_list = []
 
 for i in range (N_SIMULATION):
@@ -90,22 +99,30 @@ for i in range (N_SIMULATION):
 	#         Retrieve the joint torques from the controller           #
 	####################################################################
 	
+	if(myController.error):
+		#jointTorques = myReliefController.control(vmes)
+		myController = myReliefController
+	
 	jointTorques = myController.control(qmes, vmes, t)
 	
-	# Stop the simulation if there is an error with the controller
-	if(myController.error):
-		print ("Error ! Diverging results")
-		break
+	# Stop the simulation if there is an error with the controller or the simulation time
+	
+	time_error = time_error or (time.time()-time_start > 0.003)
+	if (time_error):
+		myController = myEmergencyStop
+		
 	
 	# Set control torque for all joints
 	p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_CONTROL, forces=jointTorques)
 	
 	# Tracking of the trajectories
-	tau0.append(jointTorques[0])
-	"""Qdes.append(myController.qdes[0].copy())
-	Vdes.append(myController.vdes[0].copy())
-	Qmes.append(qmes[0])
-	Vmes.append(vmes[0])"""
+	
+	for i in range(8):
+		"""Qdes[i].append(myController.qdes[i].copy())
+		Vdes[i].append(myController.vdes[i].copy())"""
+		Qmes[i].append(qmes[i])
+		Vmes[i].append(vmes[i])
+		Tau[i].append(jointTorques[i])
 	
 	# Compute one step of simulation
 	p.stepSimulation()
@@ -124,23 +141,33 @@ for i in range (N_SIMULATION):
 ## Plot the tracking of the trajectories
 
 import matplotlib.pylab as plt
-"""
+
 plt.figure(1)
-plt.subplot(2,1,1)
-plt.plot(Qdes, 'b', label="Desired position")
-plt.plot(Qmes, 'r', label="Measured position")
+
+plt.subplot(3,1,1)
+for i in range(8):
+	plt.plot(Qdes[i], '-')
+	plt.plot(Qmes[i], '--')
 plt.grid()
-plt.legend()
-plt.title("Trajectories tracking")
-plt.subplot(2,1,2)
-plt.plot(Vdes, 'b', label="Desired velocity")
-plt.plot(Vmes, 'r', label="Measured velocity")
+plt.title("Configuration tracking")
+
+plt.subplot(3,1,2)
+for i in range(8):
+	plt.plot(Vdes[i], '-')
+	plt.plot(Vmes[i], '--')
 plt.grid()
-plt.legend()
-plt.show()
-plt.figure(1)
-plt.plot(tau0)
-plt.show()"""
+plt.title("Velocity tracking")
+
+plt.subplot(3,1,3)
+
+for i in range(8):
+	plt.plot(Tau[i], '-')
+plt.grid()
+plt.title("Velocity tracking")
+
+plt.show()	
+
 plt.figure(2)
 plt.plot(t_list, 'k+')
+
 plt.show()
