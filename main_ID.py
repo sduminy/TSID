@@ -21,6 +21,7 @@ t = 0.0  				# time
 
 # Set the simulation in real time
 realTimeSimulation = True
+
 # Initialize the error for the simulation time
 time_error = False
 
@@ -100,7 +101,6 @@ for i in range (N_SIMULATION):
 	####################################################################
 	
 	if(myController.error):
-		#jointTorques = myReliefController.control(vmes)
 		myController = myReliefController
 	
 	jointTorques = myController.control(qmes, vmes, t)
@@ -163,7 +163,7 @@ plt.subplot(3,1,3)
 for i in range(8):
 	plt.plot(Tau[i], '-')
 plt.grid()
-plt.title("Velocity tracking")
+plt.title("Torques tracking")
 
 plt.show()	
 
