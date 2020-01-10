@@ -2,10 +2,11 @@
 
 import pybullet as p 
 import numpy as np 
+import pinocchio as pin
 import pybullet_data
 import time
 # import the controller class with its parameters
-from PDff_controller import controller, omega, q0
+from TSID_controller import controller, q0
 import Relief_controller
 import EmergencyStop_controller
 
@@ -51,7 +52,7 @@ revoluteJointIndices = [0,1, 3,4, 6,7, 9,10]
 p.setJointMotorControlArray(robotId, jointIndices = revoluteJointIndices, controlMode = p.VELOCITY_CONTROL,targetVelocities = [0.0 for m in revoluteJointIndices], forces = [0.0 for m in revoluteJointIndices])
 
 # Initialize the robot in a specific configuration
-p.resetJointStatesMultiDof(robotId, revoluteJointIndices, q0)						
+#p.resetJointStatesMultiDof(robotId, revoluteJointIndices, q0)						
 
 # Enable torque control for revolute joints
 jointTorques = [0.0 for m in revoluteJointIndices]
@@ -69,12 +70,10 @@ p.setTimeStep(dt)
 #                             Simulator                                #
 ########################################################################
 
-myController = controller(q0, omega)
+myController = controller(q0, t)
 myReliefController = Relief_controller.controller()
 myEmergencyStop = EmergencyStop_controller.controller()
 
-Qdes = [[],[],[],[],[],[],[],[]]
-Vdes = [[],[],[],[],[],[],[],[]]
 Qmes = [[],[],[],[],[],[],[],[]]
 Vmes = [[],[],[],[],[],[],[],[]]
 Tau = [[],[],[],[],[],[],[],[]]
@@ -101,6 +100,7 @@ for i in range (N_SIMULATION):
 	####################################################################
 	
 	if(myController.error):
+		print("Safety bounds reached. Switch to a safety controller")
 		myController = myReliefController
 	
 	jointTorques = myController.control(qmes, vmes, t)
@@ -109,20 +109,18 @@ for i in range (N_SIMULATION):
 	
 	time_error = time_error or (time.time()-time_start > 0.003)
 	if (time_error):
+		print("Computation time lasted to long. Switch to a zero torque control")
 		myController = myEmergencyStop
 		
-	
 	# Set control torque for all joints
 	p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_CONTROL, forces=jointTorques)
 	
 	# Tracking of the trajectories
 	
 	for i in range(8):
-		"""Qdes[i].append(myController.qdes[i].copy())
-		Vdes[i].append(myController.vdes[i].copy())"""
 		Qmes[i].append(qmes[i])
 		Vmes[i].append(vmes[i])
-		Tau[i].append(jointTorques[i])
+		Tau[i].append(jointTorques[i,0])
 	
 	# Compute one step of simulation
 	p.stepSimulation()
@@ -136,7 +134,6 @@ for i in range (N_SIMULATION):
 			time.sleep(dt-time_spent)	# ensure the simulation runs in real time
 	
 	t_list.append(time_spent)
-			
 
 ## Plot the tracking of the trajectories
 
@@ -146,15 +143,13 @@ plt.figure(1)
 
 plt.subplot(3,1,1)
 for i in range(8):
-	plt.plot(Qdes[i], '-')
-	plt.plot(Qmes[i], '--')
+		plt.plot(Qmes[i], '-')
 plt.grid()
 plt.title("Configuration tracking")
 
 plt.subplot(3,1,2)
 for i in range(8):
-	plt.plot(Vdes[i], '-')
-	plt.plot(Vmes[i], '--')
+	plt.plot(Vmes[i], '-')
 plt.grid()
 plt.title("Velocity tracking")
 
