@@ -49,7 +49,9 @@ class controller:
 	
 		return tau
 
-# Parameters of the desired trajectory
+# Parameters for the controller
+
+dt = 0.001				# controller time step
 
 omega = np.zeros((8,1))		# sinus pulsation
 
