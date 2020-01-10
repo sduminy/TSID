@@ -6,7 +6,7 @@ import pinocchio as pin
 import pybullet_data
 import time
 # import the controller class with its parameters
-from TSID_controller import controller, q0
+from TSID_controller import controller, q0, dt
 import Relief_controller
 import EmergencyStop_controller
 
@@ -16,7 +16,6 @@ import EmergencyStop_controller
 	
 # Simulation parameters
 N_SIMULATION = 10000	# number of time steps simulated
-dt = 0.001				# controller time step
 
 t = 0.0  				# time
 

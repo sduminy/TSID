@@ -3,7 +3,7 @@
 
 ########################################################################
 #                                                                      #
-#         			  Control law : tau = tau_TSID                     #
+#          Control law : tau = P(q*-q^) + D(v*-v^) + tau_ff            #
 #                                                                      #
 ########################################################################
 
@@ -30,7 +30,7 @@ class controller:
 		
 		kp_foot = 10.0
 		w_foot = 1.0
-		kp_posture = 10.0
+		kp_posture = 1.0
 		w_posture = 1.0
 		
 		########################################################################
@@ -72,7 +72,7 @@ class controller:
 		self.postureTask = tsid.TaskJointPosture("task-posture", self.robot)
 		self.postureTask.setKp(kp_posture * matlib.ones(8).T) # Proportional gain 
 		self.postureTask.setKd(2.0 * np.sqrt(kp_posture) * matlib.ones(8).T) # Derivative gain 
-		# Add the task to the HQP with weight = 1e-3, priority level = 1 (in the cost function) and a transition duration = 0.0
+		# Add the task to the HQP with weight = w_posture, priority level = 0 (as real constraint) and a transition duration = 0.0
 		self.invdyn.addMotionTask(self.postureTask, w_posture, 0, 0.0)
 
 		
@@ -91,7 +91,11 @@ class controller:
 		pin.loadReferenceConfigurations(self.model, srdf, False)
 		
 		q_ref = self.model.referenceConfigurations['straight_standing'] 
-		self.trajPosture = tsid.TrajectoryEuclidianConstant("traj_joint", q_ref)
+		trajPosture = tsid.TrajectoryEuclidianConstant("traj_joint", q_ref)
+		
+		# Set the trajectory as reference for the posture task
+		samplePosture = trajPosture.computeNext()
+		self.postureTask.setReference(samplePosture)
 		
 		## Initialization of the solver
 
@@ -105,29 +109,38 @@ class controller:
 	#                      Torque Control method                       #
 	####################################################################
 	def control(self, qmes, vmes, t):
-		
-		# Set the trajectory as reference for the position task
+				
 		"""sampleFRfoot = self.trajFRfoot.computeNext()
 		self.FRfootTask.setReference(sampleFRfoot)"""
-		samplePosture = self.trajPosture.computeNext()
-		self.postureTask.setReference(samplePosture)
-		
+				
 		# Resolution of the HQP problem
-		self.HQPData = self.invdyn.computeProblemData(t, qmes, vmes)
+		self.HQPData = self.invdyn.computeProblemData(t, self.qdes, self.vdes)
 		self.sol = self.solver.solve(self.HQPData)
 		
-		# Torques computation
-		tau = self.invdyn.getActuatorForces(self.sol)
+		# Torques, accelerations, velocities and configuration computation
+		tau_ff = self.invdyn.getActuatorForces(self.sol)
+		self.ades = self.invdyn.getAccelerations(self.sol)
+		self.vdes += self.ades * dt
+		self.qdes = pin.integrate(self.model, self.qdes, self.vdes * dt)
+		
+		# Torque PD controller
+		P = 1.0
+		D = 0.2
+		torques = P * (self.qdes - qmes) + D * (self.vdes - vmes) + tau_ff
 		
 		# Saturation to limit the maximal torque
 		t_max = 2.5
-		tau = np.maximum(np.minimum(tau, t_max * np.ones((8,1))), -t_max * np.ones((8,1)))
-		"(self.sol.status!=0)"
+		tau = np.maximum(np.minimum(torques, t_max * np.ones((8,1))), -t_max * np.ones((8,1)))
+		
 		self.error = self.error or (self.sol.status!=0) or (qmes[0] < -np.pi/2) or (qmes[2] < -np.pi/2) or (qmes[4] < -np.pi/2) or (qmes[6] < -np.pi/2) or (qmes[0] > np.pi/2) or (qmes[2] > np.pi/2) or (qmes[4] > np.pi/2) or (qmes[6] > np.pi/2)
-		if (self.error): print(self.sol.status)
+		
+		if (self.error): print("Status of the solution : ", self.sol.status)
+		
 		return tau
 
-# Parameters of the desired trajectory
+# Parameters for the controller
+
+dt = 0.001				# controller time step
 
 q0 = np.ones((8,1))		# initial configuration
 
