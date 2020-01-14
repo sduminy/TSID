@@ -29,9 +29,8 @@ class controller:
 		self.error = False
 		
 		kp_foot = 10.0
-		w_foot = 1.0
-		kp_posture = 1.0
-		w_posture = 1.0
+		w_foot = 10.0
+		
 		
 		########################################################################
 		#             Definition of the Model and TSID problem                 #
@@ -61,41 +60,33 @@ class controller:
 		self.data = self.invdyn.data()
 		
 		# Task definition
-		"""self.FRfootTask = tsid.TaskSE3Equality("FR-foot-positioning", self.robot, 'FR_FOOT')
+		self.FRfootTask = tsid.TaskSE3Equality("FR-foot-placement", self.robot, 'FR_FOOT')
 		self.FRfootTask.setKp(kp_foot * matlib.ones(6).T)
 		self.FRfootTask.setKd(2.0 * np.sqrt(kp_foot) * matlib.ones(6).T)
+		self.FRfootTask.setMask(np.matrix([[1,0,1, 0,0,0]]).T) #set a mask allowing only the transation upon x and z-axis
 		self.FRfootTask.useLocalFrame(False)
 		# Add the task to the HQP with weight = w_foot, priority level = 0 (as real constraint) and a transition duration = 0.0
-		self.invdyn.addMotionTask(self.FRfootTask, w_foot, 0, 0.0)
-		"""
-		# POSTURE Task
-		self.postureTask = tsid.TaskJointPosture("task-posture", self.robot)
-		self.postureTask.setKp(kp_posture * matlib.ones(8).T) # Proportional gain 
-		self.postureTask.setKd(2.0 * np.sqrt(kp_posture) * matlib.ones(8).T) # Derivative gain 
-		# Add the task to the HQP with weight = w_posture, priority level = 0 (as real constraint) and a transition duration = 0.0
-		self.invdyn.addMotionTask(self.postureTask, w_posture, 0, 0.0)
-
+		self.invdyn.addMotionTask(self.FRfootTask, w_foot, 1, 0.0)
 		
-		# TSID Trajectory 
-		"""
+		
+		## TSID Trajectory 
+		
 		pin.forwardKinematics(self.model, self.data, self.qdes)
 		pin.updateFramePlacements(self.model, self.data)
 	
 		FR_foot_ref = self.robot.framePosition(self.data, self.model.getFrameId('FR_FOOT'))
 		
+		FRgoalx = FR_foot_ref.translation[0,0] + 0.2 
+		FRgoalz = FR_foot_ref.translation[2,0] + 0.2
+		
 		FR_foot_goal = FR_foot_ref.copy()
 		FR_foot_goal.translation = np.matrix([FRgoalx, FR_foot_ref.translation[1,0], FRgoalz]).T
-		print(FR_foot_ref, FR_foot_goal)
+		
 		self.trajFRfoot = tsid.TrajectorySE3Constant("traj_FR_foot", FR_foot_goal)
-		"""
-		pin.loadReferenceConfigurations(self.model, srdf, False)
 		
-		q_ref = self.model.referenceConfigurations['straight_standing'] 
-		trajPosture = tsid.TrajectoryEuclidianConstant("traj_joint", q_ref)
-		
-		# Set the trajectory as reference for the posture task
-		samplePosture = trajPosture.computeNext()
-		self.postureTask.setReference(samplePosture)
+		# Set the trajectory as reference for the foot positionning task
+		self.sampleFoot = self.trajFRfoot.computeNext()
+		self.FRfootTask.setReference(self.sampleFoot)
 		
 		## Initialization of the solver
 
@@ -109,13 +100,10 @@ class controller:
 	#                      Torque Control method                       #
 	####################################################################
 	def control(self, qmes, vmes, t):
-				
-		"""sampleFRfoot = self.trajFRfoot.computeNext()
-		self.FRfootTask.setReference(sampleFRfoot)"""
-				
+					
 		# Resolution of the HQP problem
-		self.HQPData = self.invdyn.computeProblemData(t, self.qdes, self.vdes)
-		self.sol = self.solver.solve(self.HQPData)
+		HQPData = self.invdyn.computeProblemData(t, self.qdes, self.vdes)
+		self.sol = self.solver.solve(HQPData)
 		
 		# Torques, accelerations, velocities and configuration computation
 		tau_ff = self.invdyn.getActuatorForces(self.sol)
@@ -124,7 +112,7 @@ class controller:
 		self.qdes = pin.integrate(self.model, self.qdes, self.vdes * dt)
 		
 		# Torque PD controller
-		P = 1.0
+		P = 50.0
 		D = 0.2
 		torques = P * (self.qdes - qmes) + D * (self.vdes - vmes) + tau_ff
 		
@@ -134,15 +122,10 @@ class controller:
 		
 		self.error = self.error or (self.sol.status!=0) or (qmes[0] < -np.pi/2) or (qmes[2] < -np.pi/2) or (qmes[4] < -np.pi/2) or (qmes[6] < -np.pi/2) or (qmes[0] > np.pi/2) or (qmes[2] > np.pi/2) or (qmes[4] > np.pi/2) or (qmes[6] > np.pi/2)
 		
-		if (self.error): print("Status of the solution : ", self.sol.status)
-		
 		return tau
 
 # Parameters for the controller
 
 dt = 0.001				# controller time step
 
-q0 = np.ones((8,1))		# initial configuration
-
-FRgoalz = 0.1
-FRgoalx = 0.1
+q0 = np.zeros((8,1))	# initial configuration

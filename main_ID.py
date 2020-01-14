@@ -134,6 +134,9 @@ for i in range (N_SIMULATION):
 	
 	t_list.append(time_spent)
 
+if(myController.error):
+		print("Status of the solution : ", myController.sol.status)
+
 ## Plot the tracking of the trajectories
 
 import matplotlib.pylab as plt
@@ -160,8 +163,9 @@ plt.grid()
 plt.title("Torques tracking")
 
 plt.show()	
-
+"""
 plt.figure(2)
 plt.plot(t_list, 'k+')
 
 plt.show()
+"""
