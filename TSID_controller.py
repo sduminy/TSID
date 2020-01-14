@@ -23,6 +23,7 @@ class controller:
 	
 	def __init__(self, q0, omega, t):
 		
+		self.omega = omega
 		self.qdes = q0.copy()
 		self.vdes = np.zeros((8,1))
 		self.ades = np.zeros((8,1))
@@ -74,15 +75,15 @@ class controller:
 		pin.forwardKinematics(self.model, self.data, self.qdes)
 		pin.updateFramePlacements(self.model, self.data)
 	
-		FR_foot_ref = self.robot.framePosition(self.data, self.model.getFrameId('FR_FOOT'))
+		self.FR_foot_ref = self.robot.framePosition(self.data, self.model.getFrameId('FR_FOOT'))
 		
-		FRgoalx = FR_foot_ref.translation[0,0] + 0.2 
-		FRgoalz = FR_foot_ref.translation[2,0] + 0.2
+		FRgoalx = self.FR_foot_ref.translation[0,0] + 0.2 
+		FRgoalz = self.FR_foot_ref.translation[2,0] + 0.2
 		
-		FR_foot_goal = FR_foot_ref.copy()
-		FR_foot_goal.translation = np.matrix([FRgoalx, FR_foot_ref.translation[1,0], FRgoalz]).T
+		self.FR_foot_goal = self.FR_foot_ref.copy()
+		self.FR_foot_goal.translation = np.matrix([FRgoalx, self.FR_foot_ref.translation[1,0], FRgoalz]).T
 		
-		self.trajFRfoot = tsid.TrajectorySE3Constant("traj_FR_foot", FR_foot_goal)
+		self.trajFRfoot = tsid.TrajectorySE3Constant("traj_FR_foot", self.FR_foot_goal)
 		
 		# Set the trajectory as reference for the foot positionning task
 		self.sampleFoot = self.trajFRfoot.computeNext()
@@ -101,6 +102,17 @@ class controller:
 	####################################################################
 	def control(self, qmes, vmes, t):
 					
+		if (t>5.0):
+			FRgoalx = 0.05 * np.cos(self.omega*t) + (self.FR_foot_ref.translation[0,0] + 0.2) 
+			FRgoalz = 0.05 * np.sin(self.omega*t) + (self.FR_foot_ref.translation[2,0] + 0.2)
+			
+			self.FR_foot_goal.translation = np.matrix([FRgoalx, self.FR_foot_ref.translation[1,0], FRgoalz]).T
+		
+			self.trajFRfoot = tsid.TrajectorySE3Constant("traj_FR_foot", self.FR_foot_goal)
+			
+			self.sampleFoot = self.trajFRfoot.computeNext()
+			self.FRfootTask.setReference(self.sampleFoot)
+			
 		# Resolution of the HQP problem
 		HQPData = self.invdyn.computeProblemData(t, self.qdes, self.vdes)
 		self.sol = self.solver.solve(HQPData)
@@ -130,4 +142,4 @@ dt = 0.001				# controller time step
 
 q0 = np.zeros((8,1))	# initial configuration
 
-omega = np.zeros((8,1))		# sinus pulsation
+omega = 1.0				# sinus pulsation

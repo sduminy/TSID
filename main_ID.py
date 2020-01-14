@@ -15,7 +15,7 @@ import EmergencyStop_controller
 ########################################################################
 	
 # Simulation parameters
-N_SIMULATION = 10000	# number of time steps simulated
+N_SIMULATION = 100000	# number of time steps simulated
 
 t = 0.0  				# time
 
@@ -95,26 +95,29 @@ for i in range (N_SIMULATION):
 	vmes = np.vstack((np.array([[jointStates[i_joint][1] for i_joint in range(len(jointStates))]]).T))
 	
 	####################################################################
-	#         Retrieve the joint torques from the controller           #
+	#                Select the appropriate controller 				   #
+	#								&								   #
+	#				Load the joint torques into the robot			   #
 	####################################################################
 	
+	# If the limit bounds are reached, controller is switched to a pure derivative controller
 	if(myController.error):
 		print("Safety bounds reached. Switch to a safety controller")
 		myController = myReliefController
-	
-	jointTorques = myController.control(qmes, vmes, t)
-	
-	# Stop the simulation if there is an error with the controller or the simulation time
-	
+		
+	# If the simulation time is too long, controller is switched to a zero torques controller
 	time_error = time_error or (time.time()-time_start > 0.003)
 	if (time_error):
 		print("Computation time lasted to long. Switch to a zero torque control")
 		myController = myEmergencyStop
 		
+	# Retrieve the joint torques from the appropriate controller
+	jointTorques = myController.control(qmes, vmes, t)
+		
 	# Set control torque for all joints
 	p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_CONTROL, forces=jointTorques)
 	
-	# Tracking of the trajectories
+	# Track the trajectories
 	
 	for i in range(8):
 		Qmes[i].append(qmes[i])
@@ -163,9 +166,9 @@ plt.grid()
 plt.title("Torques tracking")
 
 plt.show()	
-"""
+
 plt.figure(2)
 plt.plot(t_list, 'k+')
 
 plt.show()
-"""
+
