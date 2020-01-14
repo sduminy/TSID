@@ -32,7 +32,7 @@ class controller:
 		kp_posture = 10.0		# proportionnal gain of the posture task
 		w_posture = 1.0			# weight of the posture task
 		
-		kp_lock = 1.0			# proportionnal gain of the lock task
+		kp_lock = 0.0			# proportionnal gain of the lock task
 		w_lock = 10.0			# weight of the lock task
 
 		# For the contacts
@@ -41,7 +41,7 @@ class controller:
 		fMax = 100.0  			# maximum normal force
 
 		w_forceRef = 1e-3		# weight of the forces regularization
-		kp_contact = 1.0		# proportionnal gain for the contacts
+		kp_contact = 0.0		# proportionnal gain for the contacts
 
 		foot_frames = ['HL_FOOT', 'HR_FOOT', 'FL_FOOT', 'FR_FOOT']  # tab with all the foot frames names
 		contactNormal = np.matrix([0., 0., 1.]).T  # direction of the normal to the contact surface

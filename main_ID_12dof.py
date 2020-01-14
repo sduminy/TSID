@@ -168,9 +168,9 @@ plt.grid()
 plt.title("Torques tracking")
 
 plt.show()	
-"""
+
 plt.figure(2)
 plt.plot(t_list, 'k+')
 
 plt.show()
-"""
+
