@@ -6,7 +6,7 @@ import pinocchio as pin
 import pybullet_data
 import time
 # import the controller class with its parameters
-from TSID_controller import controller, q0, dt
+from TSID_controller import controller, dt, q0, omega
 import Relief_controller
 import EmergencyStop_controller
 
@@ -69,7 +69,7 @@ p.setTimeStep(dt)
 #                             Simulator                                #
 ########################################################################
 
-myController = controller(q0, t)
+myController = controller(q0, omega, t)
 myReliefController = Relief_controller.controller()
 myEmergencyStop = EmergencyStop_controller.controller()
 

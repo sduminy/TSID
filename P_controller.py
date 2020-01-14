@@ -19,7 +19,7 @@ pin.switchToNumpyMatrix()
 
 class controller:
 	
-	def __init__(self, q0, omega):
+	def __init__(self, q0, omega, t):
 		self.omega = omega
 		self.q0 = q0
 		self.qdes = q0.copy()
@@ -55,7 +55,7 @@ dt = 0.001				# controller time step
 
 omega = np.zeros((8,1))		# sinus pulsation
 
-q0 = np.ones((8,1))		# initial configuration
+q0 = np.zeros((8,1))		# initial configuration
 
 for i in range(8):
 	omega[i] = 1.0
