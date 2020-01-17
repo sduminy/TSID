@@ -6,7 +6,7 @@ import pinocchio as pin
 import pybullet_data
 import time
 # import the controller class with its parameters
-from TSID_controller import controller, dt, q0, omega
+from TSID_posture_controller import controller, dt, q0, omega
 import Relief_controller
 import EmergencyStop_controller
 
@@ -15,7 +15,7 @@ import EmergencyStop_controller
 ########################################################################
 	
 # Simulation parameters
-N_SIMULATION = 100000	# number of time steps simulated
+N_SIMULATION = 10000	# number of time steps simulated
 
 t = 0.0  				# time
 
@@ -79,6 +79,8 @@ Tau = [[],[],[],[],[],[],[],[]]
 
 t_list = []
 
+pos_error = [[],[]]
+
 for i in range (N_SIMULATION):
 	
 	if realTimeSimulation:	
@@ -113,7 +115,11 @@ for i in range (N_SIMULATION):
 		
 	# Retrieve the joint torques from the appropriate controller
 	jointTorques = myController.control(qmes, vmes, t)
+	
+	pos_error[0].append(float(myController.FR_foot_goal.translation[0,] - myController.FR_foot_mes.translation[0,]))
 		
+	pos_error[1].append(float(myController.FR_foot_goal.translation[2,] - myController.FR_foot_mes.translation[2,]))
+	
 	# Set control torque for all joints
 	p.setJointMotorControlArray(robotId, revoluteJointIndices, controlMode=p.TORQUE_CONTROL, forces=jointTorques)
 	
